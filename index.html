@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JULIUS - ウケジャレイヤーオンライン</title>
+    <!-- Tailwind CSSを読み込み -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* フォントや全体的なスタイル調整 */
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- ヘッダー -->
+    <header class="bg-white shadow-md">
+        <div class="container mx-auto px-6 py-4">
+            <h1 class="text-3xl font-bold text-gray-900">JULIUS</h1>
+            <p class="text-sm text-gray-600">Japan Ukeja Layer Innovative Users Service</p>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="container mx-auto px-6 py-12">
+
+        <!-- ヒーローセクション -->
+        <section class="text-center">
+            <h2 class="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl md:text-6xl">
+                ウケジャレイヤーへようこそ！
+            </h2>
+            <p class="mt-4 max-w-2xl mx-auto text-xl text-gray-500">
+                駒を重ね、動かし、相手の有効手を奪う、奥深い戦略ボードゲーム。
+            </p>
+        </section>
+
+        <!-- ゲーム説明セクション -->
+        <section class="mt-16 bg-white p-8 rounded-lg shadow-lg">
+            <h3 class="text-2xl font-bold mb-6 text-center">ゲームのルール</h3>
+            <div class="space-y-8 md:space-y-0 md:grid md:grid-cols-2 md:gap-10">
+                <!-- 勝利条件 -->
+                <div>
+                    <h4 class="text-xl font-semibold mb-2">勝利条件</h4>
+                    <p class="text-gray-700">
+                        相手が操作できる手を完全になくすことで勝利となります。
+                    </p>
+                    <p class="mt-2 text-gray-600">
+                        最終的には、盤上にある相手の駒すべての上に自分の駒を重ねて「覆い尽くす」ことを目指します。
+                    </p>
+                </div>
+
+                <!-- 基本操作 -->
+                <div>
+                    <h4 class="text-xl font-semibold mb-2">基本操作</h4>
+                    <p class="text-gray-700">
+                        自分のターンでは、以下のいずれかのアクションを行います。
+                    </p>
+                    <div class="mt-4 space-y-4">
+                        <div>
+                            <p class="font-bold">召喚 (Summon)</p>
+                            <p class="text-gray-600">空いているマスに自分の駒を1つ配置します。各プレイヤー8回まで可能です。</p>
+                        </div>
+                        <div>
+                            <p class="font-bold">移動 (Move)</p>
+                            <p class="text-gray-600">自分の駒が一番上にあるマスの駒を、好きな枚数かさねて縦か横に1マス動かします。駒を重ねることが戦略の鍵です。</p>
+                        </div>
+                        <div>
+                            <p class="font-bold">排除 (Eliminate)</p>
+                            <p class="text-gray-600">全駒を召喚後、自分の駒が一番上にあるマスから相手の駒を1つ取り除けます。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- アクションボタンセクション -->
+        <section class="mt-16 text-center">
+            <h3 class="text-2xl font-bold mb-8">ゲームを始める</h3>
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-4">
+                <!-- 対局を作成するボタン -->
+                <a href="create.html" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    対局を作成する
+                </a>
+                <!-- 対局に参加するボタン -->
+                <a href="join.html" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    対局に参加する
+                </a>
+                <!-- 対局を観戦するボタン -->
+                <a href="spectate.html" class="w-full sm:w-auto bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
+                    対局を観戦する
+                </a>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- フッター -->
+    <footer class="bg-white mt-16">
+        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
+            <p>&copy; 2025 JULIUS. All rights reserved.</p>
+        </div>
+    </footer>
+
+</body>
+</html>
+
