@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JULIUS - 対局を作成</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+        }
+        /* Simple toggle switch style */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #4ade80;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #4ade80;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- ヘッダー -->
+    <header class="bg-white shadow-md">
+        <div class="container mx-auto px-6 py-4">
+            <h1 class="text-3xl font-bold text-gray-900">JULIUS</h1>
+            <p class="text-sm text-gray-600">Japan Ukeja Layer Innovative Users Service</p>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="container mx-auto px-6 py-12">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-8">対局を作成</h2>
+
+        <div class="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg">
+            <form id="create-game-form">
+                <div class="space-y-6">
+
+                    <!-- 対戦形式 -->
+                    <div>
+                        <label class="block text-lg font-semibold text-gray-700">対戦形式</label>
+                        <div class="mt-2 flex space-x-4">
+                            <label><input type="radio" name="gameType" value="online" checked class="mr-2">オンライン</label>
+                            <label><input type="radio" name="gameType" value="offline" class="mr-2">オフライン</label>
+                        </div>
+                    </div>
+
+                    <!-- ボード設定 -->
+                    <div>
+                        <label for="board-size" class="block text-lg font-semibold text-gray-700">ボードの大きさ</label>
+                        <input type="number" id="board-size" name="boardSize" value="4" min="3" max="8" class="mt-2 p-2 w-full border rounded-md">
+                    </div>
+
+                    <!-- 時間設定 -->
+                    <div>
+                        <label class="block text-lg font-semibold text-gray-700 mb-2">時間設定</label>
+                        <div class="flex items-center">
+                            <span class="mr-3 text-gray-900">持ち時間システム</span>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="time-control-enabled" id="time-control-toggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" checked/>
+                                <label for="time-control-toggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <div id="time-settings-panel" class="mt-4 space-y-4">
+                            <div>
+                                <label for="time-limit" class="block text-sm font-medium text-gray-700">持ち時間 (分)</label>
+                                <input type="number" id="time-limit" name="timeLimit" value="5" min="1" class="mt-1 p-2 w-full border rounded-md">
+                            </div>
+                            <div>
+                                <label for="delay" class="block text-sm font-medium text-gray-700">ディレイ (秒)</label>
+                                <input type="number" id="delay" name="delay" value="10" min="0" class="mt-1 p-2 w-full border rounded-md">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 手番設定 -->
+                    <div id="player-color-section">
+                         <label class="block text-lg font-semibold text-gray-700">あなたの手番</label>
+                        <div class="mt-2 flex space-x-4">
+                            <label><input type="radio" name="playerColor" value="random" checked class="mr-2">ランダム</label>
+                            <label><input type="radio" name="playerColor" value="white" class="mr-2">先手(白)</label>
+                            <label><input type="radio" name="playerColor" value="black" class="mr-2">後手(黒)</label>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- 作成ボタン -->
+                <div class="mt-8 border-t pt-6">
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
+                        対局を作成
+                    </button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+     <!-- フッター -->
+    <footer class="bg-white mt-16">
+        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
+            <p>&copy; 2025 JULIUS. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getDatabase, ref, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getAuth, setPersistence, browserSessionPersistence, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
+            authDomain: "julius-online-a5984.firebaseapp.com",
+            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "julius-online-a5984",
+            storageBucket: "julius-online-a5984.appspot.com",
+            messagingSenderId: "688172535832",
+            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+        const auth = getAuth(app);
+
+        const timeControlToggle = document.getElementById('time-control-toggle');
+        const timeSettingsPanel = document.getElementById('time-settings-panel');
+        const form = document.getElementById('create-game-form');
+
+        // Toggle visibility of time settings
+        timeControlToggle.addEventListener('change', () => {
+            timeSettingsPanel.classList.toggle('hidden', !timeControlToggle.checked);
+        });
+
+        // 匿名認証を行い、ユーザーIDを返す関数
+        async function getAnonymousUser() {
+            try {
+                // 認証状態を現在のタブのみに限定する
+                await setPersistence(auth, browserSessionPersistence);
+                const userCredential = await signInAnonymously(auth);
+                return userCredential.user;
+            } catch (error) {
+                console.error("Anonymous sign-in failed:", error);
+                alert("認証に失敗しました。ページをリロードしてください。");
+                return null;
+            }
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const user = await getAnonymousUser();
+            if (!user) return; // 認証に失敗したら中断
+
+            const formData = new FormData(form);
+            const settings = Object.fromEntries(formData.entries());
+            
+            if (settings.gameType === 'offline') {
+                await createOfflineGame(settings, user.uid); // uidを渡す
+            } else {
+                // Online game creation logic will go here
+                alert('オンライン対戦は現在開発中です。');
+            }
+        });
+
+        const gameTypeRadios = document.querySelectorAll('input[name="gameType"]');
+        const playerColorSection = document.getElementById('player-color-section');
+
+        gameTypeRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                if (e.target.value === 'offline') {
+                    playerColorSection.classList.add('hidden');
+                } else {
+                    playerColorSection.classList.remove('hidden');
+                }
+            });
+        });
+
+        async function createOfflineGame(settings, uid) {
+            const gameId = crypto.randomUUID();
+            const now = serverTimestamp();
+            const boardSize = parseInt(settings.boardSize, 10);
+            const timeLimit = parseInt(settings.timeLimit, 10) * 60;
+            const delay = parseInt(settings.delay, 10);
+            const timeControlEnabled = settings['time-control-enabled'] === 'on';
+
+            const gameData = {
+                gameId: gameId,
+                meta: {
+                    status: "in_progress", // Offline games start immediately
+                    players: { white: uid, black: uid },
+                    winner: null,
+                    winReason: null,
+                    gameSettings: {
+                        boardSize: boardSize,
+                        maxSummons: boardSize * 2, // Assumption: summons scale with board size
+                        timeControl: {
+                            enabled: timeControlEnabled,
+                            timeLimit: timeLimit,
+                            delay: delay,
+                        }
+                    },
+                    createdAt: now,
+                    updatedAt: now
+                },
+                moves: [
+                    {
+                        turnNumber: 0,
+                        currentPlayer: "white",
+                        board: Array.from({ length: boardSize }, () => Array.from({ length: boardSize }, () => 0)),
+                        summonCounts: { white: 0, black: 0 },
+                        timers: {
+                            white: timeLimit,
+                            black: timeLimit
+                        },
+                        timestamp: now
+                    }
+                ]
+            };
+
+            try {
+                // Save the initial game state to Firebase
+                await set(ref(database, 'games/' + gameId), gameData);
+                
+                // Redirect to the game page
+                window.location.href = `game.html?id=${gameId}&mode=play`;
+            } catch (error) {
+                console.error("Failed to create game:", error);
+                alert("ゲームの作成に失敗しました。");
+            }
+        }
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JULIUS - ウケジャレイヤー対局</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+            touch-action: manipulation;
+        }
+        .board { 
+            display: grid;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+        }
+        .cell { position: relative; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; }
+        .cell.light { background-color: #f0d9b5; }
+        .cell.dark { background-color: #b58863; }
+        .piece { position: absolute; width: 75%; height: 75%; border-radius: 50%; cursor: pointer; transition: all 0.2s ease-in-out; box-sizing: border-box; box-shadow: inset 0 -4px 8px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.5); }
+        .piece.white { background: radial-gradient(circle at 50% 30%, #ffffff, #cccccc); border: 2px solid #888; }
+        .piece.black { background: radial-gradient(circle at 50% 30%, #555555, #111111); border: 2px solid #000; }
+        .cell.selected { outline: 3px solid #3b82f6; outline-offset: -3px; }
+        .cell.valid-move::after { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30%; height: 30%; background-color: rgba(59, 130, 246, 0.7); border-radius: 50%; pointer-events: none; z-index: 10; }
+        #modal { transition: opacity 0.3s ease, transform 0.3s ease; z-index: 50; }
+        .replay-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- ヘッダー -->
+    <header class="bg-white shadow-md">
+        <div class="container mx-auto px-6 py-4">
+            <h1 class="text-3xl font-bold text-gray-900">JULIUS</h1>
+            <p class="text-sm text-gray-600">Japan Ukeja Layer Innovative Users Service</p>
+        </div>
+    </header>
+
+    <main id="game-container" class="w-full max-w-xl mx-auto py-8 px-4 hidden">
+        <p class="text-center text-xs text-gray-500 mb-2">Game ID: <span id="game-id"></span></p>
+
+        <!-- ゲーム情報パネル -->
+        <div id="info-panel" class="bg-white rounded-lg shadow-md p-4 mb-4 text-center">
+            <p id="turn-indicator" class="text-xl font-semibold"></p>
+            <p id="message-area" class="text-gray-600 mt-2 h-6"></p>
+            <div class="flex justify-around mt-3">
+                <div class="w-1/2 text-center">
+                    <div id="white-timer-display" class="text-2xl font-mono p-1 rounded-md">--:--</div>
+                    <p class="font-bold text-sm">白の召喚数</p>
+                    <p id="white-summon-count" class="text-sm">0 / 8</p>
+                </div>
+                <div class="w-1/2 text-center">
+                    <div id="black-timer-display" class="text-2xl font-mono p-1 rounded-md">--:--</div>
+                    <p class="font-bold text-sm">黒の召喚数</p>
+                    <p id="black-summon-count" class="text-sm">0 / 8</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ボード -->
+        <div id="board" class="board rounded-md overflow-hidden"></div>
+        
+        <!-- 操作パネル -->
+        <div id="controls-panel" class="bg-white rounded-lg shadow-md p-4 mt-4">
+             <div id="action-mode-toggle" class="hidden flex items-center justify-center space-x-4 mb-4">
+                <label class="flex items-center cursor-pointer">
+                    <input type="radio" name="actionMode" value="MOVE" class="sr-only peer" checked>
+                    <span class="px-4 py-2 rounded-lg font-semibold text-gray-700 bg-gray-200 peer-checked:bg-blue-500 peer-checked:text-white">移動</span>
+                </label>
+                <label class="flex items-center cursor-pointer">
+                    <input type="radio" name="actionMode" value="ELIMINATE" class="sr-only peer">
+                    <span class="px-4 py-2 rounded-lg font-semibold text-gray-700 bg-gray-200 peer-checked:bg-red-500 peer-checked:text-white">排除</span>
+                </label>
+            </div>
+            <div id="action-buttons" class="flex space-x-2">
+                <button id="cancel-button" class="hidden w-1/2 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow">キャンセル</button>
+                <button id="end-turn-button" class="hidden w-1/2 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg shadow">ターン終了</button>
+            </div>
+             <div id="exit-button-container" class="text-center mt-4">
+                <a href="index.html" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition">トップページへ戻る</a>
+            </div>
+        </div>
+
+        <!-- 棋譜操作パネル -->
+        <div id="replay-controls" class="bg-white rounded-lg shadow-md p-4 mt-4 flex items-center justify-center space-x-4">
+            <button id="first-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-fast-backward"></i></button>
+            <button id="prev-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-step-backward"></i></button>
+            <span id="turn-display" class="font-semibold text-gray-700">Turn 0 / 0</span>
+            <button id="next-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-step-forward"></i></button>
+            <button id="last-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-fast-forward"></i></button>
+        </div>
+    </main>
+     <div id="loading-container" class="text-center py-20">
+        <p class="text-xl text-gray-600">対局データを読み込んでいます...</p>
+    </div>
+
+    <!-- モーダル -->
+    <div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 opacity-0 scale-95">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center">
+            <h2 id="modal-title" class="text-2xl font-bold mb-4"></h2>
+            <div id="modal-content" class="mb-6"></div>
+            <button id="modal-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg w-full">OK</button>
+        </div>
+    </div>
+
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getDatabase, ref, set, onValue, off, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getAuth, setPersistence, browserSessionPersistence, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
+            authDomain: "julius-online-a5984.firebaseapp.com",
+            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "julius-online-a5984",
+            storageBucket: "julius-online-a5984.appspot.com",
+            messagingSenderId: "688172535832",
+            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+        const auth = getAuth(app);
+
+        class GameManager {
+            constructor() {
+                this.gameData = null;
+                this.currentTurnState = null;
+                this.timerInterval = null;
+                this.viewingTurnNumber = 0;
+                this.uiGameState = 'IDLE';
+                this.selectedCoords = null;
+                this.lastMoveDest = null;
+                this.actionMode = 'MOVE';
+                this.gameId = null;
+                this.mode = 'spectate'; // 'play' or 'spectate'
+                this.dbRef = null;
+                this.turnStartBoardState = null;
+                this.activeTimerTurnNumber = -1;
+                this.serverTimeOffset = 0;
+
+                this.bindDOMElements();
+                this.addEventListeners();
+            }
+
+            bindDOMElements() {
+                this.dom = {
+                    container: document.getElementById('game-container'),
+                    loadingContainer: document.getElementById('loading-container'),
+                    gameId: document.getElementById('game-id'),
+                    board: document.getElementById('board'),
+                    turnIndicator: document.getElementById('turn-indicator'),
+                    message: document.getElementById('message-area'),
+                    whiteSummon: document.getElementById('white-summon-count'),
+                    blackSummon: document.getElementById('black-summon-count'),
+                    whiteTimer: document.getElementById('white-timer-display'),
+                    blackTimer: document.getElementById('black-timer-display'),
+                    endTurnBtn: document.getElementById('end-turn-button'),
+                    cancelBtn: document.getElementById('cancel-button'),
+                    actionModeToggle: document.getElementById('action-mode-toggle'),
+                    exitBtnContainer: document.getElementById('exit-button-container'),
+                    replayControls: document.getElementById('replay-controls'),
+                    firstMoveBtn: document.getElementById('first-move-btn'),
+                    prevMoveBtn: document.getElementById('prev-move-btn'),
+                    nextMoveBtn: document.getElementById('next-move-btn'),
+                    lastMoveBtn: document.getElementById('last-move-btn'),
+                    turnDisplay: document.getElementById('turn-display'),
+                    modal: document.getElementById('modal'),
+                    modalTitle: document.getElementById('modal-title'),
+                    modalContent: document.getElementById('modal-content'),
+                    modalBtn: document.getElementById('modal-button')
+                };
+            }
+
+            init() {
+                const urlParams = new URLSearchParams(window.location.search);
+                this.gameId = urlParams.get('id');
+                this.mode = urlParams.get('mode') === 'play' ? 'play' : 'spectate';
+
+                if (!this.gameId) {
+                    this.dom.loadingContainer.textContent = 'エラー: 対局IDが指定されていません。';
+                    return;
+                }
+
+                // 匿名認証を行い、成功したらデータ読み込みを開始する
+                this.authenticateAndLoadData();
+            }
+
+            async authenticateAndLoadData() {
+                try {
+                    await setPersistence(auth, browserSessionPersistence);
+                    await signInAnonymously(auth);
+                    
+                    this.dbRef = ref(database, 'games/' + this.gameId);
+
+                    const offsetRef = ref(database, '.info/serverTimeOffset');
+                    onValue(offsetRef, (snap) => {
+                        this.serverTimeOffset = snap.val() || 0;
+                    });
+
+                    onValue(this.dbRef, (snapshot) => {
+                        if (snapshot.exists()) {
+                            this.handleDataUpdate(snapshot.val());
+                        } else {
+                            this.dom.loadingContainer.textContent = 'エラー: 指定された対局が見つかりません。';
+                            if (this.dbRef) off(this.dbRef);
+                        }
+                    }, { onlyOnce: false });
+
+                } catch (error) {
+                    console.error("Authentication or data loading failed:", error);
+                    this.dom.loadingContainer.textContent = 'エラー: データの読み込みに失敗しました。';
+                }
+            }
+            
+            handleDataUpdate(data) {
+                this.gameData = data;
+                
+                if (this.dom.container.classList.contains('hidden')) {
+                     this.dom.loadingContainer.style.display = 'none';
+                     this.dom.container.classList.remove('hidden');
+                }
+                
+                // 常に最新の状態を読み込むように修正
+                this.loadLatestState();
+            }
+
+            loadLatestState() {
+                if (!this.gameData) return;
+
+                if (this.gameData.moves && !Array.isArray(this.gameData.moves)) {
+                    this.gameData.moves = Object.values(this.gameData.moves);
+                }
+
+                if (!this.gameData.moves || this.gameData.moves.length === 0) {
+                    this.dom.loadingContainer.style.display = 'block';
+                    this.dom.container.classList.add('hidden');
+                    this.dom.loadingContainer.textContent = 'エラー: 対局データに手番情報がありません。';
+                    return;
+                }
+                
+                this.viewingTurnNumber = this.gameData.moves.length - 1;
+                this.currentTurnState = JSON.parse(JSON.stringify(this.gameData.moves[this.viewingTurnNumber]));
+
+                this.turnStartBoardState = JSON.parse(JSON.stringify(this.currentTurnState.board));
+                
+                this.dom.gameId.textContent = this.gameData.gameId;
+                this.uiGameState = 'IDLE';
+                this.selectedCoords = null;
+                this.lastMoveDest = null;
+                this.actionMode = 'MOVE';
+                document.querySelectorAll('input[name="actionMode"]').forEach(radio => radio.checked = radio.value === 'MOVE');
+                
+                if (this.gameData.meta.gameSettings.timeControl.enabled && this.gameData.meta.status === 'in_progress') {
+                    this.startTimer();
+                }
+                
+                this.render();
+            }
+
+            render() {
+                if (!this.gameData || !this.gameData.moves) return;
+                const stateToRender = this.uiGameState === 'IDLE' ? this.gameData.moves[this.viewingTurnNumber] : this.currentTurnState;
+                if (!stateToRender) return;
+
+                this.renderBoard(stateToRender.board);
+                this.updateInfo();
+                this.highlight();
+                this.updateReplayControls();
+            }
+
+            renderBoard(boardData) {
+                const boardSize = this.gameData.meta.gameSettings.boardSize;
+                this.dom.board.innerHTML = '';
+                this.dom.board.style.gridTemplateColumns = `repeat(${boardSize}, 1fr)`;
+                this.dom.board.style.gridTemplateRows = `repeat(${boardSize}, 1fr)`;
+
+                for (let r = 0; r < boardSize; r++) {
+                    for (let c = 0; c < boardSize; c++) {
+                        const cell = document.createElement('div');
+                        cell.dataset.r = r; cell.dataset.c = c;
+                        cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+                        
+                        const stack = Array.isArray(boardData[r]?.[c]) ? boardData[r][c] : [];
+                        stack.forEach((pieceColor, i) => {
+                            const piece = document.createElement('div');
+                            piece.className = `piece ${pieceColor}`;
+                            piece.style.transform = `translateY(${-i * 8}px)`;
+                            piece.style.zIndex = i + 1;
+                            cell.appendChild(piece);
+                        });
+                        this.dom.board.appendChild(cell);
+                    }
+                }
+            }
+
+            updateInfo() {
+                const displayedState = this.gameData.moves[this.viewingTurnNumber];
+                const latestState = this.gameData.moves[this.gameData.moves.length - 1];
+                const stateForInfo = this.uiGameState !== 'IDLE' ? this.currentTurnState : displayedState;
+
+                const { currentPlayer, summonCounts } = stateForInfo;
+                const { maxSummons } = this.gameData.meta.gameSettings;
+                const isGameInProgress = this.gameData.meta.status === 'in_progress';
+                const isViewingLatest = this.viewingTurnNumber === this.gameData.moves.length - 1;
+
+                let timersToShow;
+                if (isGameInProgress) {
+                    const timeWhenTurnStarted = latestState.timestamp;
+                    const remainingTimeAtTurnStart = latestState.timers;
+                    const { delay } = this.gameData.meta.gameSettings.timeControl;
+                    const { currentPlayer } = latestState;
+
+                    const estimatedServerTimeNow = Date.now() + this.serverTimeOffset;
+                    const elapsedTimeMs = Math.max(0, estimatedServerTimeNow - timeWhenTurnStarted);
+                    const elapsedTimeSec = Math.floor(elapsedTimeMs / 1000);
+                    
+                    const timeToDeduct = Math.max(0, elapsedTimeSec - delay);
+
+                    timersToShow = { ...remainingTimeAtTurnStart };
+                    timersToShow[currentPlayer] = Math.max(0, remainingTimeAtTurnStart[currentPlayer] - timeToDeduct);
+                } else {
+                    timersToShow = displayedState.timers;
+                }
+
+                this.dom.turnIndicator.textContent = `ターン: ${currentPlayer === 'white' ? '白' : '黒'}`;
+                this.dom.whiteSummon.textContent = `${summonCounts.white} / ${maxSummons}`;
+                this.dom.blackSummon.textContent = `${summonCounts.black} / ${maxSummons}`;
+                this.dom.whiteTimer.textContent = this.formatTime(timersToShow.white);
+                this.dom.blackTimer.textContent = this.formatTime(timersToShow.black);
+                
+                this.dom.whiteTimer.classList.remove('bg-green-200');
+                this.dom.blackTimer.classList.remove('bg-green-200');
+                if (isGameInProgress) {
+                    // 対局進行中は、現在の最新の手番プレイヤーをハイライト
+                    if (latestState.currentPlayer === 'white') {
+                        this.dom.whiteTimer.classList.add('bg-green-200');
+                    } else {
+                        this.dom.blackTimer.classList.add('bg-green-200');
+                    }
+                } else {
+                    // 対局終了後は、表示している手番のプレイヤーをハイライト
+                    if (displayedState.currentPlayer === 'white') {
+                        this.dom.whiteTimer.classList.add('bg-green-200');
+                    } else {
+                        this.dom.blackTimer.classList.add('bg-green-200');
+                    }
+                }
+                
+                const isPlayerTurn = this.mode === 'play' && isViewingLatest && isGameInProgress;
+                const actionTaken = this.uiGameState === 'CONTINUOUS_MOVE' || this.uiGameState === 'ACTION_TAKEN';
+                
+                this.dom.endTurnBtn.classList.toggle('hidden', !isPlayerTurn || !actionTaken);
+                this.dom.cancelBtn.classList.toggle('hidden', !isPlayerTurn || !actionTaken);
+
+                const isSummonPhaseOver = summonCounts.white === maxSummons && summonCounts.black === maxSummons;
+                this.dom.actionModeToggle.classList.toggle('hidden', !isPlayerTurn || !isSummonPhaseOver || actionTaken);
+
+                if (!isViewingLatest) this.setMessage('過去の盤面を表示中です。');
+                else if (this.dom.message.textContent === '過去の盤面を表示中です。') this.setMessage('');
+                
+                if (this.mode === 'spectate') {
+                    this.dom.exitBtnContainer.style.display = 'block';
+                } else {
+                    this.dom.exitBtnContainer.style.display = isGameInProgress ? 'none' : 'block';
+                }
+                this.dom.replayControls.style.display = 'flex';
+            }
+
+            highlight() {
+                this.dom.board.querySelectorAll('.cell').forEach(c => c.classList.remove('selected', 'valid-move'));
+                const isViewingLatest = this.viewingTurnNumber === this.gameData.moves.length - 1;
+                if (!isViewingLatest || this.uiGameState !== 'PIECE_SELECTED' || !this.selectedCoords) return;
+
+                const { r, c } = this.selectedCoords;
+                const cell = this.dom.board.querySelector(`.cell[data-r='${r}'][data-c='${c}']`);
+                if (cell) cell.classList.add('selected');
+
+                this.getValidMoves(r, c).forEach(move => {
+                    const moveCell = this.dom.board.querySelector(`.cell[data-r='${move.r}'][data-c='${move.c}']`);
+                    if (moveCell) moveCell.classList.add('valid-move');
+                });
+            }
+
+            updateReplayControls() {
+                const maxTurn = this.gameData.moves.length - 1;
+                this.dom.turnDisplay.textContent = `Turn ${this.viewingTurnNumber} / ${maxTurn}`;
+                this.dom.firstMoveBtn.disabled = this.viewingTurnNumber === 0;
+                this.dom.prevMoveBtn.disabled = this.viewingTurnNumber === 0;
+                this.dom.nextMoveBtn.disabled = this.viewingTurnNumber === maxTurn;
+                this.dom.lastMoveBtn.disabled = this.viewingTurnNumber === maxTurn;
+            }
+
+            resetUncommittedChanges() {
+                // 操作中の変更がなければ何もしない
+                if (this.uiGameState === 'IDLE') return;
+
+                const latestMoveIndex = this.gameData.moves.length - 1;
+                // 操作中の盤面を、最後に保存された状態に戻す
+                this.currentTurnState = JSON.parse(JSON.stringify(this.gameData.moves[latestMoveIndex]));
+                this.turnStartBoardState = JSON.parse(JSON.stringify(this.currentTurnState.board));
+
+                // UIの状態もリセットする
+                this.uiGameState = 'IDLE';
+                this.selectedCoords = null;
+                this.lastMoveDest = null;
+                this.setMessage('');
+            }
+            
+            addEventListeners() {
+                this.dom.board.addEventListener('click', this.handleBoardClick.bind(this));
+                this.dom.endTurnBtn.addEventListener('click', this.endTurn.bind(this));
+                this.dom.cancelBtn.addEventListener('click', this.cancelTurn.bind(this));
+                
+                document.querySelectorAll('input[name="actionMode"]').forEach(radio => {
+                    radio.addEventListener('change', (e) => {
+                        this.actionMode = e.target.value;
+                        this.deselect();
+                        this.setMessage(this.actionMode === 'MOVE' ? '移動する駒を選択してください。' : '排除する駒のあるマスを選択してください。');
+                    });
+                });
+
+                this.dom.firstMoveBtn.addEventListener('click', () => { this.resetUncommittedChanges(); this.viewingTurnNumber = 0; this.render(); });
+                this.dom.prevMoveBtn.addEventListener('click', () => { if (this.viewingTurnNumber > 0) { this.resetUncommittedChanges(); this.viewingTurnNumber--; this.render(); } });
+                this.dom.nextMoveBtn.addEventListener('click', () => { if (this.viewingTurnNumber < this.gameData.moves.length - 1) { this.resetUncommittedChanges(); this.viewingTurnNumber++; this.render(); } });
+                this.dom.lastMoveBtn.addEventListener('click', () => { this.resetUncommittedChanges(); this.viewingTurnNumber = this.gameData.moves.length - 1; this.render(); });
+            }
+
+            handleBoardClick(e) {
+                const cell = e.target.closest('.cell');
+                const isViewingLatest = this.viewingTurnNumber === this.gameData.moves.length - 1;
+                if (!cell || this.gameData.meta.status !== 'in_progress' || !isViewingLatest || this.mode !== 'play') return;
+
+                if (this.uiGameState === 'ACTION_TAKEN') {
+                    this.setMessage('ターンを終了するか、キャンセルしてください。');
+                    return;
+                }
+                const r = parseInt(cell.dataset.r), c = parseInt(cell.dataset.c);
+                const { maxSummons } = this.gameData.meta.gameSettings;
+                const isSummonPhaseOver = this.currentTurnState.summonCounts.white === maxSummons && this.currentTurnState.summonCounts.black === maxSummons;
+
+                if (isSummonPhaseOver && this.actionMode === 'ELIMINATE') this.handleEliminate(r, c);
+                else if (this.uiGameState === 'IDLE' || this.uiGameState === 'CONTINUOUS_MOVE') this.handleSelection(r, c);
+                else if (this.uiGameState === 'PIECE_SELECTED') this.handleMoveAction(r, c);
+            }
+            
+            handleSelection(r, c) {
+                const { currentPlayer, summonCounts } = this.currentTurnState;
+                const { maxSummons } = this.gameData.meta.gameSettings;
+                
+                const stack = this.currentTurnState.board[r][c];
+                const isEmpty = !Array.isArray(stack) || stack.length === 0;
+                const isMyPieceOnTop = !isEmpty && stack[stack.length - 1] === currentPlayer;
+
+                if (this.uiGameState === 'CONTINUOUS_MOVE') {
+                     if (this.lastMoveDest.r !== r || this.lastMoveDest.c !== c) {
+                        this.setMessage('連続移動は直前の移動先から行う必要があります。');
+                        return;
+                    }
+                    if (isMyPieceOnTop) {
+                        // 連続移動が可能か（自駒が2枚以上あるか）をチェック
+                        let ownPiecesOnTop = 0;
+                        for (let i = stack.length - 1; i >= 0; i--) {
+                            if (stack[i] === currentPlayer) ownPiecesOnTop++;
+                            else break;
+                        }
+                        if (ownPiecesOnTop > 1) {
+                            this.selectPiece(r, c);
+                        } else {
+                            this.setMessage('ここからは連続移動できません。');
+                        }
+                    }
+                    return;
+                }
+                
+                if (isMyPieceOnTop) {
+                    this.selectPiece(r, c);
+                } else if (isEmpty && summonCounts[currentPlayer] < maxSummons) {
+                    this.summon(r, c);
+                }
+            }
+
+            handleMoveAction(r, c) {
+                const isMoveValid = this.getValidMoves(this.selectedCoords.r, this.selectedCoords.c).some(m => m.r === r && m.c === c);
+                if (isMoveValid) {
+                    this.promptForPieceCount(this.selectedCoords.r, this.selectedCoords.c, r, c);
+                } else if (this.selectedCoords.r === r && this.selectedCoords.c === c) {
+                    this.deselect();
+                } else {
+                    this.setMessage('無効な移動先です。');
+                }
+            }
+
+            summon(r, c) {
+                const { currentPlayer } = this.currentTurnState;
+                // マスがnullの場合、駒を置けるように空の配列で初期化する
+                if (!Array.isArray(this.currentTurnState.board[r][c])) {
+                    this.currentTurnState.board[r][c] = [];
+                }
+                this.currentTurnState.board[r][c].push(currentPlayer);
+                this.currentTurnState.summonCounts[currentPlayer]++;
+                this.setMessage(`${currentPlayer === 'white' ? '白' : '黒'}が駒を召喚しました。`);
+                this.uiGameState = 'ACTION_TAKEN';
+                this.render();
+            }
+
+            move(startR, startC, endR, endC, pieceCount) {
+                // ▼▼▼ 変更箇所 ▼▼▼
+                // 移動先が空マス(0)の場合、駒を置けるように配列で初期化
+                if (!Array.isArray(this.currentTurnState.board[endR][endC])) {
+                    this.currentTurnState.board[endR][endC] = [];
+                }
+                // ▲▲▲ 変更箇所 ▲▲▲
+                const piecesToMove = this.currentTurnState.board[startR][startC].splice(-pieceCount);
+                this.currentTurnState.board[endR][endC].push(...piecesToMove);
+                
+                this.uiGameState = 'CONTINUOUS_MOVE';
+                this.lastMoveDest = { r: endR, c: endC };
+                this.selectedCoords = null;
+                
+                const { board, currentPlayer } = this.currentTurnState;
+                const newStack = board[endR][endC];
+                let ownPiecesOnTop = 0;
+                for (let i = newStack.length - 1; i >= 0; i--) {
+                    if (newStack[i] === currentPlayer) ownPiecesOnTop++;
+                    else break;
+                }
+
+                if (ownPiecesOnTop > 1) this.setMessage('連続移動が可能です。');
+                else this.setMessage('これ以上連続移動できません。');
+                this.render();
+            }
+
+            handleEliminate(r, c) {
+                const { board, currentPlayer } = this.currentTurnState;
+                const stack = board[r][c];
+                if (stack.length === 0 || stack[stack.length - 1] !== currentPlayer) {
+                    this.setMessage('自分の駒が一番上にあるマスを選択してください。');
+                    return;
+                }
+
+                let opponentPieceIndex = -1;
+                for (let i = stack.length - 2; i >= 0; i--) {
+                    if (stack[i] !== currentPlayer) {
+                        opponentPieceIndex = i;
+                        break;
+                    }
+                }
+                
+                if (opponentPieceIndex !== -1) {
+                    this.currentTurnState.board[r][c].splice(opponentPieceIndex, 1);
+                    this.setMessage(`${currentPlayer === 'white' ? '白' : '黒'}が相手の駒を排除しました。`);
+                    this.uiGameState = 'ACTION_TAKEN';
+                    this.render();
+                } else {
+                    this.setMessage('そのマスには排除できる相手の駒がありません。');
+                }
+            }
+            
+            async endTurn() {
+                // 盤面状態がターン開始時と変わっていない場合（実質的なパス）はターン終了しない
+                if (JSON.stringify(this.turnStartBoardState) === JSON.stringify(this.currentTurnState.board)) {
+                    this.setMessage('変更がありません。実質的なパスは禁止されています。');
+                    return;
+                }
+
+                if (this.timerInterval) clearInterval(this.timerInterval);
+
+                const lastMove = this.gameData.moves[this.gameData.moves.length - 1];
+                const newTurnNumber = lastMove.turnNumber + 1;
+                const newCurrentPlayer = lastMove.currentPlayer === 'white' ? 'black' : 'white';
+
+                const timeWhenTurnStarted = lastMove.timestamp;
+                const remainingTimeAtTurnStart = lastMove.timers[lastMove.currentPlayer];
+                const { delay } = this.gameData.meta.gameSettings.timeControl;
+                
+                const estimatedServerTimeNow = Date.now() + this.serverTimeOffset;
+                const elapsedTimeMs = Math.max(0, estimatedServerTimeNow - timeWhenTurnStarted);
+                const elapsedTimeSec = Math.floor(elapsedTimeMs / 1000);
+                
+                const timeToDeduct = Math.max(0, elapsedTimeSec - delay);
+                const newRemainingTime = Math.max(0, remainingTimeAtTurnStart - timeToDeduct);
+
+                const newTimers = { ...lastMove.timers };
+                newTimers[lastMove.currentPlayer] = newRemainingTime;
+
+                const newMove = {
+                    turnNumber: newTurnNumber,
+                    currentPlayer: newCurrentPlayer,
+                    board: JSON.parse(JSON.stringify(this.currentTurnState.board)),
+                    summonCounts: JSON.parse(JSON.stringify(this.currentTurnState.summonCounts)),
+                    timers: newTimers, // 正しいタイマー情報を保存
+                    timestamp: serverTimestamp() // サーバー時刻を保存
+                };
+
+                this.gameData.moves.push(newMove);
+                this.gameData.meta.updatedAt = serverTimestamp(); // サーバー時刻を保存
+                
+                 if (this.checkWinCondition(newMove)) {
+                    const winner = newMove.currentPlayer === 'white' ? 'black' : 'white';
+                    await this.endGame(winner, `${newMove.currentPlayer === 'white' ? '白' : '黒'}は有効な手を指せなくなりました。`);
+                 } else {
+                    await this.saveGameData();
+                 }
+            }
+            
+            cancelTurn() {
+                this.setMessage('操作をキャンセルしました。');
+                this.resetUncommittedChanges();
+                // キャンセル後は必ず最新の盤面を表示する
+                this.viewingTurnNumber = this.gameData.moves.length - 1;
+                this.render();
+            }
+            
+            selectPiece(r, c) {
+                this.uiGameState = 'PIECE_SELECTED';
+                this.selectedCoords = { r, c };
+                this.setMessage('移動先を選択してください。');
+                this.render();
+            }
+
+            deselect() {
+                this.uiGameState = this.lastMoveDest ? 'CONTINUOUS_MOVE' : 'IDLE';
+                this.selectedCoords = null;
+                this.setMessage('');
+                this.render();
+            }
+
+            getValidMoves(r, c) {
+                const moves = [];
+                const { boardSize } = this.gameData.meta.gameSettings;
+                const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                for (const [dr, dc] of directions) {
+                    const newR = r + dr;
+                    const newC = c + dc;
+                    if (newR >= 0 && newR < boardSize && newC >= 0 && newC < boardSize) {
+                        moves.push({ r: newR, c: newC });
+                    }
+                }
+                return moves;
+            }
+
+            promptForPieceCount(startR, startC, endR, endC) {
+                const { board, currentPlayer } = this.currentTurnState;
+                const stack = board[startR][startC];
+                let movablePiecesCount = 0;
+                for (let i = stack.length - 1; i >= 0; i--) {
+                    if (stack[i] === currentPlayer) movablePiecesCount++;
+                    else break;
+                }
+
+                let maxMovable = movablePiecesCount;
+                if (this.lastMoveDest) {
+                    maxMovable = movablePiecesCount - 1;
+                }
+                
+                if (maxMovable <= 0) {
+                     this.setMessage('連続移動では、自分の駒を1つ残す必要があります。');
+                     this.deselect();
+                     return;
+                }
+
+                this.showModal(
+                    '移動する駒の数',
+                    `<p>移動する駒の数を選択してください (1〜${maxMovable}個)。</p>
+                    <input type="number" id="piece-count-input" class="w-full border p-2 rounded mt-2" min="1" max="${maxMovable}" value="1">`,
+                    () => {
+                        const pieceCount = parseInt(document.getElementById('piece-count-input').value);
+                        if (pieceCount > 0 && pieceCount <= maxMovable) {
+                            this.move(startR, startC, endR, endC, pieceCount);
+                        } else {
+                            this.setMessage(`1から${maxMovable}の間の数値を入力してください。`);
+                        }
+                    }
+                );
+            }
+
+            checkWinCondition(state) {
+                const { board, summonCounts, currentPlayer } = state;
+                const { maxSummons, boardSize } = this.gameData.meta.gameSettings;
+                
+                const opponent = currentPlayer; 
+
+                if (summonCounts[opponent] < maxSummons) {
+                    for (let r = 0; r < boardSize; r++) {
+                        for (let c = 0; c < boardSize; c++) {
+                            if (!Array.isArray(board[r][c]) || board[r][c].length === 0) return false;
+                        }
+                    }
+                }
+
+                for (let r = 0; r < boardSize; r++) {
+                    for (let c = 0; c < boardSize; c++) {
+                        const stack = board[r][c];
+                        if (stack && stack.length > 0 && stack[stack.length - 1] === opponent) {
+                            return false; 
+                        }
+                    }
+                }
+                return true;
+            }
+
+            async endGame(winner, reason) {
+                if (this.timerInterval) clearInterval(this.timerInterval);
+                this.gameData.meta.status = 'completed';
+                this.gameData.meta.winner = winner;
+                this.gameData.meta.winReason = reason;
+                this.gameData.meta.updatedAt = serverTimestamp(); // サーバー時刻を保存
+
+                await this.saveGameData(); 
+                this.showModal( `${winner === 'white' ? '白' : '黒'}の勝利！`, reason);
+            }
+
+            async saveGameData() {
+                try {
+                    await set(this.dbRef, this.gameData);
+                } catch (error) {
+                    console.error("Failed to save game data:", error);
+                    this.showModal('エラー', 'ゲームデータの保存に失敗しました。');
+                }
+            }
+
+            startTimer() {
+                const latestTurnNumber = this.gameData.moves.length - 1;
+                if (this.activeTimerTurnNumber === latestTurnNumber && this.timerInterval) {
+                    return;
+                }
+                if (this.timerInterval) clearInterval(this.timerInterval);
+                this.timerInterval = null; 
+
+                this.activeTimerTurnNumber = latestTurnNumber;
+                
+                this.timerInterval = setInterval(() => {
+                    const latestState = this.gameData.moves[this.gameData.moves.length - 1];
+                    if (this.gameData.meta.status !== 'in_progress') {
+                        clearInterval(this.timerInterval); return;
+                    }
+                    
+                    // --- 時間を計算してUIを更新 ---
+                    const timeWhenTurnStarted = latestState.timestamp;
+                    const remainingTimeAtTurnStart = latestState.timers[latestState.currentPlayer];
+                    const { delay } = this.gameData.meta.gameSettings.timeControl;
+
+                    const estimatedServerTimeNow = Date.now() + this.serverTimeOffset;
+                    const elapsedTimeMs = Math.max(0, estimatedServerTimeNow - timeWhenTurnStarted);
+                    const elapsedTimeSec = Math.floor(elapsedTimeMs / 1000);
+                    
+                    const timeToDeduct = Math.max(0, elapsedTimeSec - delay);
+                    const currentRemainingTime = Math.max(0, remainingTimeAtTurnStart - timeToDeduct);
+
+                    const timerDisplay = latestState.currentPlayer === 'white' ? this.dom.whiteTimer : this.dom.blackTimer;
+                    timerDisplay.textContent = this.formatTime(currentRemainingTime);
+
+                    // --- 時間切れチェック ---
+                    if (currentRemainingTime <= 0) {
+                        clearInterval(this.timerInterval);
+                        // プレイヤーのみがゲームを終了させられる
+                        if (this.mode === 'play') {
+                            const winner = latestState.currentPlayer === 'white' ? 'black' : 'white';
+                            this.endGame(winner, `${latestState.currentPlayer === 'white' ? '白' : '黒'}の時間切れです。`);
+                        }
+                    }
+                }, 500); // 描画頻度を少し上げる
+            }
+            
+            // --- Utils ---
+            formatTime(seconds) {
+                if (typeof seconds !== 'number' || seconds < 0) seconds = 0;
+                const min = Math.floor(seconds / 60);
+                const sec = seconds % 60;
+                return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+            }
+            setMessage(msg) { this.dom.message.textContent = msg; }
+            showModal(title, content, onConfirm) {
+                this.dom.modalTitle.textContent = title;
+                this.dom.modalContent.innerHTML = content || '';
+                this.dom.modalContent.style.display = content ? 'block' : 'none';
+                
+                const newButton = this.dom.modalBtn.cloneNode(true);
+                this.dom.modalBtn.parentNode.replaceChild(newButton, this.dom.modalBtn);
+                this.dom.modalBtn = newButton;
+                
+                this.dom.modalBtn.onclick = () => {
+                    this.hideModal();
+                    if (onConfirm) onConfirm();
+                };
+                
+                this.dom.modal.classList.remove('hidden');
+                setTimeout(() => this.dom.modal.classList.add('opacity-100', 'scale-100'), 10);
+            }
+            hideModal() {
+                 this.dom.modal.classList.add('opacity-0', 'scale-95');
+                 setTimeout(() => this.dom.modal.classList.add('hidden'), 300);
+            }
+        }
+        
+        const game = new GameManager();
+        game.init();
+
+    </script>
+</body>
+</html>
+

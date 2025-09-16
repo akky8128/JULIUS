@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JULIUS - 対局を観戦</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- ヘッダー -->
+    <header class="bg-white shadow-md">
+        <div class="container mx-auto px-6 py-4">
+            <h1 class="text-3xl font-bold text-gray-900">JULIUS</h1>
+            <p class="text-sm text-gray-600">Japan Ukeja Layer Innovative Users Service</p>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="container mx-auto px-6 py-12">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-8">対局を観戦</h2>
+
+        <div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-lg">
+            <form id="spectate-form">
+                <div class="space-y-6">
+                    <div>
+                        <label for="game-id-input" class="block text-lg font-semibold text-gray-700">対局ID</label>
+                        <p class="text-sm text-gray-500 mt-1">観戦したい対局のIDを入力してください。</p>
+                        <input type="text" id="game-id-input" name="gameId" required class="mt-2 p-3 w-full border rounded-md" placeholder="例: bf9b68b2-0515-44b2-8cc2-37f911084f34">
+                    </div>
+                </div>
+
+                <!-- 作成ボタン -->
+                <div class="mt-8 border-t pt-6">
+                    <button type="submit" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
+                        観戦を開始する
+                    </button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+     <!-- フッター -->
+    <footer class="bg-white mt-16">
+        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
+            <p>&copy; 2025 JULIUS. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        const form = document.getElementById('spectate-form');
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const gameId = document.getElementById('game-id-input').value.trim();
+            if (gameId) {
+                // game.htmlに観戦モードで遷移
+                window.location.href = `game.html?id=${gameId}&mode=spectate`;
+            } else {
+                alert('対局IDを入力してください。');
+            }
+        });
+    </script>
+</body>
+</html>
