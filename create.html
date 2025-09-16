@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JULIUS - 対局を作成</title>
+    <title>JuliUs - 対局を作成</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -24,7 +24,7 @@
     <!-- ヘッダー -->
     <header class="bg-white shadow-md">
         <div class="container mx-auto px-6 py-4">
-            <h1 class="text-3xl font-bold text-gray-900">JULIUS</h1>
+            <a href="index.html" class="text-3xl font-bold text-gray-900 no-underline hover:text-blue-600 transition-colors">JuliUs</a>
             <p class="text-sm text-gray-600">Japan Ukeja Layer Innovative Users Service</p>
         </div>
     </header>
@@ -88,8 +88,13 @@
 
                 <!-- 作成ボタン -->
                 <div class="mt-8 border-t pt-6">
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
-                        対局を作成
+                    <!-- 対局を作成ボタン -->
+                    <button type="submit" id="create-game-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition flex items-center justify-center">
+                        <span id="button-text">対局を作成</span>
+                        <svg id="button-spinner" class="animate-spin ml-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
                     </button>
                 </div>
             </form>
@@ -99,7 +104,7 @@
      <!-- フッター -->
     <footer class="bg-white mt-16">
         <div class="container mx-auto px-6 py-4 text-center text-gray-500">
-            <p>&copy; 2025 JULIUS. All rights reserved.</p>
+            <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
         </div>
     </footer>
 
@@ -145,19 +150,40 @@
             }
         }
 
+        const createButton = document.getElementById('create-game-button');
+        const buttonText = document.getElementById('button-text');
+        const buttonSpinner = document.getElementById('button-spinner');
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            createButton.disabled = true;
+            buttonText.textContent = '作成中...';
+            buttonSpinner.classList.remove('hidden');
+
             const user = await getAnonymousUser();
-            if (!user) return; // 認証に失敗したら中断
+            if (!user) {
+                createButton.disabled = false;
+                buttonText.textContent = '対局を作成';
+                buttonSpinner.classList.add('hidden');
+                return;
+            }
 
             const formData = new FormData(form);
             const settings = Object.fromEntries(formData.entries());
             
-            if (settings.gameType === 'offline') {
-                await createOfflineGame(settings, user.uid); // uidを渡す
-            } else {
-                // Online game creation logic will go here
-                alert('オンライン対戦は現在開発中です。');
+            try {
+                if (settings.gameType === 'offline') {
+                    await createOfflineGame(settings, user.uid);
+                } else {
+                    await createOnlineGame(settings, user.uid);
+                }
+            } catch (error) {
+                console.error("Game creation failed:", error);
+                alert('対局の作成に失敗しました。');
+                createButton.disabled = false;
+                buttonText.textContent = '対局を作成';
+                buttonSpinner.classList.add('hidden');
             }
         });
 
@@ -225,6 +251,69 @@
             } catch (error) {
                 console.error("Failed to create game:", error);
                 alert("ゲームの作成に失敗しました。");
+            }
+        }
+
+        async function createOnlineGame(settings, uid) {
+            const gameId = crypto.randomUUID();
+            const now = serverTimestamp();
+            const boardSize = parseInt(settings.boardSize, 10);
+            const timeLimit = parseInt(settings.timeLimit, 10) * 60;
+            const delay = parseInt(settings.delay, 10);
+            const timeControlEnabled = settings['time-control-enabled'] === 'on';
+
+            let playerColor = settings.playerColor;
+            if (playerColor === 'random') {
+                playerColor = Math.random() < 0.5 ? 'white' : 'black';
+            }
+            
+            const players = {
+                white: playerColor === 'white' ? uid : 0,
+                black: playerColor === 'black' ? uid : 0,
+            };
+
+            const gameData = {
+                gameId: gameId,
+                meta: {
+                    status: "waiting", // 待機状態
+                    players: players,
+                    winner: null,
+                    winReason: null,
+                    gameSettings: {
+                        boardSize: boardSize,
+                        maxSummons: boardSize * 2,
+                        timeControl: {
+                            enabled: timeControlEnabled,
+                            timeLimit: timeLimit,
+                            delay: delay,
+                        }
+                    },
+                    createdAt: now,
+                    updatedAt: now
+                },
+                moves: [
+                    {
+                        turnNumber: 0,
+                        currentPlayer: "white",
+                        board: Array.from({ length: boardSize }, () => Array.from({ length: boardSize }, () => 0)),
+                        summonCounts: { white: 0, black: 0 },
+                        timers: {
+                            white: timeLimit,
+                            black: timeLimit
+                        },
+                        timestamp: now
+                    }
+                ]
+            };
+
+            const gameRef = ref(database, 'games/' + gameId);
+            try {
+                await set(gameRef, gameData);
+                // 待機画面に遷移
+                window.location.href = `waiting.html?id=${gameId}`;
+            } catch (error) {
+                console.error("Failed to create online game:", error);
+                alert("オンライン対局の作成に失敗しました。");
             }
         }
     </script>
