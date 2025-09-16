@@ -160,9 +160,15 @@
                 // 空席判定：whiteが0ならwhiteに、そうでなければblackに入る
                 const playerColor = white === 0 ? 'white' : 'black';
                 
+                const timeLimit = gameData.meta.gameSettings.timeControl.timeLimit;
+                
                 updates[`/meta/players/${playerColor}`] = user.uid;
                 updates['/meta/status'] = 'in_progress';
                 updates['/meta/updatedAt'] = serverTimestamp();
+                // 最初のターンのタイマーとタイムスタンプをリセット
+                updates['/moves/0/timers/white'] = timeLimit;
+                updates['/moves/0/timers/black'] = timeLimit;
+                updates['/moves/0/timestamp'] = serverTimestamp();
 
                 await update(gameRef, updates);
                 window.location.href = `game.html?id=${gameId}&mode=play`;
