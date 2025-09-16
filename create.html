@@ -217,7 +217,7 @@
                     winReason: null,
                     gameSettings: {
                         boardSize: boardSize,
-                        maxSummons: boardSize * 2, // Assumption: summons scale with board size
+                        maxSummons: Math.floor(boardSize * boardSize / 2),
                         timeControl: {
                             enabled: timeControlEnabled,
                             timeLimit: timeLimit,
@@ -281,7 +281,7 @@
                     winReason: null,
                     gameSettings: {
                         boardSize: boardSize,
-                        maxSummons: boardSize * 2,
+                        maxSummons: Math.floor(boardSize * boardSize / 2),
                         timeControl: {
                             enabled: timeControlEnabled,
                             timeLimit: timeLimit,
