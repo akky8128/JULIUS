@@ -606,6 +606,11 @@
                 // ▲▲▲ 変更箇所 ▲▲▲
                 const piecesToMove = this.currentTurnState.board[startR][startC].splice(-pieceCount);
                 this.currentTurnState.board[endR][endC].push(...piecesToMove);
+
+                // 移動元のマスに駒がなくなった場合、0 を代入してデータを保持する
+                if (this.currentTurnState.board[startR][startC].length === 0) {
+                    this.currentTurnState.board[startR][startC] = 0;
+                }
                 
                 this.uiGameState = 'CONTINUOUS_MOVE';
                 this.lastMoveDest = { r: endR, c: endC };
@@ -747,28 +752,51 @@
 
                 let maxMovable = movablePiecesCount;
                 if (this.lastMoveDest) {
+                    // 連続移動の場合、最低1枚は残す必要がある
                     maxMovable = movablePiecesCount - 1;
                 }
                 
+                // 動かせる駒がない場合（連続移動で1枚しかない場合など）
                 if (maxMovable <= 0) {
                      this.setMessage('連続移動では、自分の駒を1つ残す必要があります。');
                      this.deselect();
                      return;
                 }
+                
+                // ▼▼▼ 変更箇所 ▼▼▼
+                // 動かせる駒が1枚しかない場合はポップアップを表示せず移動
+                if (maxMovable === 1) {
+                    this.move(startR, startC, endR, endC, 1);
+                    return;
+                }
 
+                // 動かせる駒が複数枚ある場合、<select>でポップアップ表示
+                let options = '';
+                for (let i = 1; i <= maxMovable; i++) {
+                    // デフォルトで最大数を選択状態にする
+                    const selected = i === maxMovable ? 'selected' : '';
+                    options += `<option value="${i}" ${selected}>${i}個</option>`;
+                }
+
+                const modalContent = `
+                    <p>移動する駒の数を選択してください。</p>
+                    <select id="piece-count-select" class="w-full border p-2 rounded mt-2 bg-white text-lg">
+                        ${options}
+                    </select>
+                `;
+                
                 this.showModal(
                     '移動する駒の数',
-                    `<p>移動する駒の数を選択してください (1〜${maxMovable}個)。</p>
-                    <input type="number" id="piece-count-input" class="w-full border p-2 rounded mt-2" min="1" max="${maxMovable}" value="1">`,
+                    modalContent,
                     () => {
-                        const pieceCount = parseInt(document.getElementById('piece-count-input').value);
+                        const pieceCount = parseInt(document.getElementById('piece-count-select').value);
+                        // 念の為バリデーション
                         if (pieceCount > 0 && pieceCount <= maxMovable) {
                             this.move(startR, startC, endR, endC, pieceCount);
-                        } else {
-                            this.setMessage(`1から${maxMovable}の間の数値を入力してください。`);
                         }
                     }
                 );
+                // ▲▲▲ 変更箇所 ▲▲▲
             }
 
             checkWinCondition(state) {
