@@ -419,7 +419,7 @@
                 }
                 
                 const isPlayerTurn = this.mode === 'play' && isViewingLatest && isGameInProgress;
-                const actionTaken = this.uiGameState === 'CONTINUOUS_MOVE' || this.uiGameState === 'ACTION_TAKEN';
+                const actionTaken = this.uiGameState === 'CONTINUOUS_MOVE' || this.uiGameState === 'ACTION_TAKEN' || (this.uiGameState === 'PIECE_SELECTED' && this.lastMoveDest !== null);
                 
                 this.dom.endTurnBtn.classList.toggle('hidden', !isPlayerTurn || !actionTaken);
                 this.dom.cancelBtn.classList.toggle('hidden', !isPlayerTurn || !actionTaken);
@@ -624,9 +624,16 @@
                     else break;
                 }
 
-                if (ownPiecesOnTop > 1) this.setMessage('連続移動が可能です。');
-                else this.setMessage('これ以上連続移動できません。');
-                this.render();
+                // 連続移動が可能であれば、移動後の駒を自動で選択状態にする
+                if (ownPiecesOnTop > 1) {
+                    this.selectPiece(endR, endC);
+                } else {
+                    // 連続移動ができない場合は、選択を解除してターン終了を待つ
+                    this.uiGameState = 'CONTINUOUS_MOVE';
+                    this.selectedCoords = null;
+                    this.setMessage('これ以上連続移動できません。');
+                    this.render();
+                }
             }
 
             handleEliminate(r, c) {
