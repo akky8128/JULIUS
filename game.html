@@ -359,7 +359,7 @@
                 const stateForInfo = this.uiGameState !== 'IDLE' ? this.currentTurnState : displayedState;
 
                 const { currentPlayer, summonCounts } = stateForInfo;
-                const { maxSummons } = this.gameData.meta.gameSettings;
+                const { maxSummons, timeControl } = this.gameData.meta.gameSettings;
                 const isGameInProgress = this.gameData.meta.status === 'in_progress';
                 const isViewingLatest = this.viewingTurnNumber === this.gameData.moves.length - 1;
 
@@ -375,48 +375,54 @@
                     this.dom.playerColorIndicator.textContent = '';
                 }
 
-                let timersToShow;
-                if (isGameInProgress) {
-                    const timeWhenTurnStarted = latestState.timestamp;
-                    const remainingTimeAtTurnStart = latestState.timers;
-                    const { delay } = this.gameData.meta.gameSettings.timeControl;
-                    const { currentPlayer } = latestState;
-
-                    const estimatedServerTimeNow = Date.now() + this.serverTimeOffset;
-                    const elapsedTimeMs = Math.max(0, estimatedServerTimeNow - timeWhenTurnStarted);
-                    const elapsedTimeSec = Math.floor(elapsedTimeMs / 1000);
-                    
-                    const timeToDeduct = Math.max(0, elapsedTimeSec - delay);
-
-                    timersToShow = { ...remainingTimeAtTurnStart };
-                    timersToShow[currentPlayer] = Math.max(0, remainingTimeAtTurnStart[currentPlayer] - timeToDeduct);
+                if (!timeControl.enabled) {
+                    this.dom.whiteTimer.style.display = 'none';
+                    this.dom.blackTimer.style.display = 'none';
                 } else {
-                    timersToShow = displayedState.timers;
+                    this.dom.whiteTimer.style.display = 'block';
+                    this.dom.blackTimer.style.display = 'block';
+                    
+                    let timersToShow;
+                    if (isGameInProgress) {
+                        const timeWhenTurnStarted = latestState.timestamp;
+                        const remainingTimeAtTurnStart = latestState.timers;
+                        const { delay } = this.gameData.meta.gameSettings.timeControl;
+                        const { currentPlayer } = latestState;
+
+                        const estimatedServerTimeNow = Date.now() + this.serverTimeOffset;
+                        const elapsedTimeMs = Math.max(0, estimatedServerTimeNow - timeWhenTurnStarted);
+                        const elapsedTimeSec = Math.floor(elapsedTimeMs / 1000);
+                        
+                        const timeToDeduct = Math.max(0, elapsedTimeSec - delay);
+
+                        timersToShow = { ...remainingTimeAtTurnStart };
+                        timersToShow[currentPlayer] = Math.max(0, remainingTimeAtTurnStart[currentPlayer] - timeToDeduct);
+                    } else {
+                        timersToShow = displayedState.timers;
+                    }
+                    this.dom.whiteTimer.textContent = this.formatTime(timersToShow.white);
+                    this.dom.blackTimer.textContent = this.formatTime(timersToShow.black);
+                
+                    this.dom.whiteTimer.classList.remove('bg-green-200');
+                    this.dom.blackTimer.classList.remove('bg-green-200');
+                    if (isGameInProgress) {
+                        if (latestState.currentPlayer === 'white') {
+                            this.dom.whiteTimer.classList.add('bg-green-200');
+                        } else {
+                            this.dom.blackTimer.classList.add('bg-green-200');
+                        }
+                    } else {
+                        if (displayedState.currentPlayer === 'white') {
+                            this.dom.whiteTimer.classList.add('bg-green-200');
+                        } else {
+                            this.dom.blackTimer.classList.add('bg-green-200');
+                        }
+                    }
                 }
 
                 this.dom.turnIndicator.textContent = `ターン: ${currentPlayer === 'white' ? '白' : '黒'}`;
                 this.dom.whiteSummon.textContent = `${summonCounts.white} / ${maxSummons}`;
                 this.dom.blackSummon.textContent = `${summonCounts.black} / ${maxSummons}`;
-                this.dom.whiteTimer.textContent = this.formatTime(timersToShow.white);
-                this.dom.blackTimer.textContent = this.formatTime(timersToShow.black);
-                
-                this.dom.whiteTimer.classList.remove('bg-green-200');
-                this.dom.blackTimer.classList.remove('bg-green-200');
-                if (isGameInProgress) {
-                    // 対局進行中は、現在の最新の手番プレイヤーをハイライト
-                    if (latestState.currentPlayer === 'white') {
-                        this.dom.whiteTimer.classList.add('bg-green-200');
-                    } else {
-                        this.dom.blackTimer.classList.add('bg-green-200');
-                    }
-                } else {
-                    // 対局終了後は、表示している手番のプレイヤーをハイライト
-                    if (displayedState.currentPlayer === 'white') {
-                        this.dom.whiteTimer.classList.add('bg-green-200');
-                    } else {
-                        this.dom.blackTimer.classList.add('bg-green-200');
-                    }
-                }
                 
                 const isPlayerTurn = this.mode === 'play' && isViewingLatest && isGameInProgress;
                 const actionTaken = this.uiGameState === 'CONTINUOUS_MOVE' || this.uiGameState === 'ACTION_TAKEN' || (this.uiGameState === 'PIECE_SELECTED' && this.lastMoveDest !== null);
