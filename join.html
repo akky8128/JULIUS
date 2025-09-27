@@ -61,7 +61,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getDatabase, ref, get, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-        import { getAuth, setPersistence, browserSessionPersistence, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
@@ -85,21 +85,26 @@
         const buttonText = document.getElementById('button-text');
         const buttonSpinner = document.getElementById('button-spinner');
 
-        async function getAnonymousUser() {
-            try {
-                await setPersistence(auth, browserSessionPersistence);
-                const userCredential = await signInAnonymously(auth);
-                return userCredential.user;
-            } catch (error) {
-                console.error("Anonymous sign-in failed:", error);
-                errorMessage.textContent = "認証に失敗しました。";
-                return null;
+        let currentUser = null;
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                joinButton.disabled = false;
+            } else {
+                alert("ログインが必要です。トップページに戻ります。");
+                window.location.href = 'index.html';
             }
-        }
+        });
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             errorMessage.textContent = '';
+
+            if (!currentUser) {
+                errorMessage.textContent = 'ログイン認証が完了していません。';
+                return;
+            }
             
             joinButton.disabled = true;
             buttonText.textContent = '参加中...';
@@ -119,12 +124,7 @@
             }
 
             try {
-                const user = await getAnonymousUser();
-                if (!user) {
-                    reEnableButton();
-                    return; 
-                }
-                
+                const user = currentUser; // currentUser を使用
                 const gameRef = ref(database, 'games/' + gameId);
                 const snapshot = await get(gameRef);
 
@@ -143,7 +143,6 @@
                 }
                 
                 const { white, black } = gameData.meta.players;
-                // 満員チェック：whiteもblackも0ではないことを確認
                 if (white !== 0 && black !== 0) {
                     errorMessage.textContent = 'この対局は満員です。';
                     reEnableButton();
@@ -157,15 +156,12 @@
                 }
                 
                 const updates = {};
-                // 空席判定：whiteが0ならwhiteに、そうでなければblackに入る
                 const playerColor = white === 0 ? 'white' : 'black';
-                
                 const timeLimit = gameData.meta.gameSettings.timeControl.timeLimit;
                 
                 updates[`/meta/players/${playerColor}`] = user.uid;
                 updates['/meta/status'] = 'in_progress';
                 updates['/meta/updatedAt'] = serverTimestamp();
-                // 最初のターンのタイマーとタイムスタンプをリセット
                 updates['/moves/0/timers/white'] = timeLimit;
                 updates['/moves/0/timers/black'] = timeLimit;
                 updates['/moves/0/timestamp'] = serverTimestamp();

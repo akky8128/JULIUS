@@ -206,18 +206,16 @@
                     return;
                 }
                 
-                // 認証とデータ読み込みを直接実行する
-                try {
-                    console.log("[1] Auth process started.");
-                    await setPersistence(auth, browserSessionPersistence);
-                    const userCredential = await signInAnonymously(auth);
-                    const user = userCredential.user;
-                    console.log("[2] Auth process completed. UID:", user.uid);
-                    this.loadGameData(user);
-                } catch (error) {
-                    console.error("Authentication failed:", error);
-                    this.dom.loadingContainer.textContent = 'エラー: 認証に失敗しました。';
-                }
+                onAuthStateChanged(auth, (user) => {
+                    if (user || this.mode === 'spectate') {
+                        // ログイン済み、または観戦モードの場合はゲームデータを読み込む
+                        console.log("[Auth] User is signed in or in spectate mode.");
+                        this.loadGameData(user); // userがnullでも観戦モードなら動作するようにloadGameData側でハンドリング
+                    } else {
+                        // プレイモードで未ログインの場合
+                        this.dom.loadingContainer.textContent = 'エラー: ログインが必要です。トップページに戻ってログインしてください。';
+                    }
+                });
             }
 
             loadGameData(user) {
@@ -233,13 +231,22 @@
                     if (snapshot.exists()) {
                         const gameData = snapshot.val();
                         
+                        // 参加者検証の箇所を修正
                         console.log("--- 参加者検証 ---");
-                        console.log("A. 検証に使用するユーザーID:", user.uid);
+                        // userが存在する場合のみUIDをチェック
+                        const uid = user ? user.uid : null;
+                        console.log("A. 検証に使用するユーザーID:", uid);
                         console.log("B. DBから取得した対局のプレイヤー:", gameData.meta.players);
 
                         if (this.mode === 'play') {
+                            if (!uid) { // そもそもログインしていない
+                                this.dom.loadingContainer.textContent = 'エラー: この対局をプレイするにはログインが必要です。';
+                                this.dom.container.classList.add('hidden');
+                                if (this.dbRef) off(this.dbRef);
+                                return;
+                            }
                             const players = gameData.meta.players;
-                            const isParticipant = user.uid === players.white || user.uid === players.black;
+                            const isParticipant = uid === players.white || uid === players.black;
                             
                             console.log(`C. 参加者かどうかの判定結果: ${isParticipant}`);
                             console.log("-------------------");

@@ -64,7 +64,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getDatabase, ref, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-        import { getAuth, setPersistence, browserSessionPersistence, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
@@ -89,47 +89,38 @@
         const gameId = urlParams.get('id');
 
         async function init() {
-            if (!gameId) {
-                gameIdDisplay.textContent = '対局IDが見つかりません。';
-                copyButton.disabled = true;
-                return;
-            }
-
-            try {
-                // 匿名認証を実行
-                await setPersistence(auth, browserSessionPersistence);
-                await signInAnonymously(auth);
-                
-                gameIdDisplay.textContent = gameId;
-
-                // --- クリップボードにコピー ---
-                copyButton.addEventListener('click', () => {
-                    navigator.clipboard.writeText(gameId).then(() => {
-                        copyFeedback.textContent = 'コピーしました！';
-                        setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
-                    }).catch(err => {
-                        copyFeedback.textContent = 'コピーに失敗しました。';
-                        console.error('Copy failed:', err);
-                    });
-                });
-
-                // --- Firebaseで対戦相手を待機 ---
-                const gameStatusRef = ref(database, `games/${gameId}/meta/status`);
-                const unsubscribe = onValue(gameStatusRef, (snapshot) => {
-                    const status = snapshot.val();
-                    if (status === 'in_progress') {
-                        // 監視を停止して、ゲーム画面に遷移
-                        unsubscribe(); // 正しい停止方法に変更
-                        window.location.href = `game.html?id=${gameId}&mode=play`;
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    if (!gameId) {
+                        gameIdDisplay.textContent = '対局IDが見つかりません。';
+                        copyButton.disabled = true;
+                        return;
                     }
-                });
+                    gameIdDisplay.textContent = gameId;
 
-            } catch (error) {
-                console.error("Authentication or listener setup failed:", error);
-                mainContent.innerHTML = '<div class="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg text-center"><h2 class="text-2xl font-bold text-red-600">エラー</h2><p class="mt-4">ページの読み込みに失敗しました。トップページに戻ってやり直してください。</p></div>';
-            }
+                    copyButton.addEventListener('click', () => {
+                        navigator.clipboard.writeText(gameId).then(() => {
+                            copyFeedback.textContent = 'コピーしました！';
+                            setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
+                        }).catch(err => {
+                            copyFeedback.textContent = 'コピーに失敗しました。';
+                        });
+                    });
+
+                    const gameStatusRef = ref(database, `games/${gameId}/meta/status`);
+                    const unsubscribe = onValue(gameStatusRef, (snapshot) => {
+                        if (snapshot.val() === 'in_progress') {
+                            unsubscribe();
+                            window.location.href = `game.html?id=${gameId}&mode=play`;
+                        }
+                    });
+                } else {
+                    alert("ログインが必要です。トップページに戻ります。");
+                    window.location.href = 'index.html';
+                }
+            });
         }
-        
+            
         init();
 
     </script>

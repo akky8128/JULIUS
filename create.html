@@ -111,7 +111,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getDatabase, ref, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-        import { getAuth, setPersistence, browserSessionPersistence, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        // signInAnonymouslyを削除し、onAuthStateChangedを追加
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
@@ -136,47 +137,45 @@
             timeSettingsPanel.classList.toggle('hidden', !timeControlToggle.checked);
         });
 
-        // 匿名認証を行い、ユーザーIDを返す関数
-        async function getAnonymousUser() {
-            try {
-                // 認証状態を現在のタブのみに限定する
-                await setPersistence(auth, browserSessionPersistence);
-                const userCredential = await signInAnonymously(auth);
-                return userCredential.user;
-            } catch (error) {
-                console.error("Anonymous sign-in failed:", error);
-                alert("認証に失敗しました。ページをリロードしてください。");
-                return null;
-            }
-        }
-
         const createButton = document.getElementById('create-game-button');
         const buttonText = document.getElementById('button-text');
         const buttonSpinner = document.getElementById('button-spinner');
 
+        let currentUser = null;
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                // ログイン済みであればボタンを有効化
+                createButton.disabled = false;
+            } else {
+                // 未ログインであればindex.htmlへリダイレクト
+                alert("ログインが必要です。トップページに戻ります。");
+                window.location.href = 'index.html';
+            }
+        });
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            if (!currentUser) {
+                alert("ログイン認証が完了していません。");
+                return;
+            }
             
             createButton.disabled = true;
             buttonText.textContent = '作成中...';
             buttonSpinner.classList.remove('hidden');
 
-            const user = await getAnonymousUser();
-            if (!user) {
-                createButton.disabled = false;
-                buttonText.textContent = '対局を作成';
-                buttonSpinner.classList.add('hidden');
-                return;
-            }
-
+            const uid = currentUser.uid;
             const formData = new FormData(form);
             const settings = Object.fromEntries(formData.entries());
             
             try {
                 if (settings.gameType === 'offline') {
-                    await createOfflineGame(settings, user.uid);
+                    await createOfflineGame(settings, uid);
                 } else {
-                    await createOnlineGame(settings, user.uid);
+                    await createOnlineGame(settings, uid);
                 }
             } catch (error) {
                 console.error("Game creation failed:", error);
