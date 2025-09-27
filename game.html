@@ -364,7 +364,8 @@
                 const isViewingLatest = this.viewingTurnNumber === this.gameData.moves.length - 1;
 
                 const myId = auth.currentUser ? auth.currentUser.uid : null;
-                if (this.mode === 'play' && myId) {
+                // オンライン対戦の場合のみプレイヤーカラーを表示
+                if (this.mode === 'play' && myId && this.gameData.meta.players.white !== this.gameData.meta.players.black) {
                     const players = this.gameData.meta.players;
                     if (myId === players.white) {
                         this.dom.playerColorIndicator.textContent = 'あなたは先手 (白) です';
