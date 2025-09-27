@@ -12,6 +12,7 @@
             font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
         }
     </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body class="bg-gray-100 text-gray-800">
 
@@ -25,6 +26,19 @@
 
     <!-- メインコンテンツ -->
     <main class="container mx-auto px-6 py-12">
+
+        <div id="auth-container" class="text-center mb-12">
+            <div id="user-info" class="hidden items-center justify-center space-x-4">
+                <p class="text-lg">ようこそ、<span id="user-name" class="font-bold"></span>さん</p>
+                <button id="logout-button" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
+                    ログアウト
+                </button>
+            </div>
+            <button id="login-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-lg text-lg transition transform hover:scale-105">
+                <i class="fab fa-google mr-2"></i> Googleでログイン
+            </button>
+        </div>
+        <section class="text-center">
 
         <!-- ヒーローセクション -->
         <section class="text-center">
@@ -102,6 +116,67 @@
             <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
         </div>
     </footer>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
+            authDomain: "julius-online-a5984.firebaseapp.com",
+            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "julius-online-a5984",
+            storageBucket: "julius-online-a5984.appspot.com",
+            messagingSenderId: "688172535832",
+            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+
+        const loginButton = document.getElementById('login-button');
+        const logoutButton = document.getElementById('logout-button');
+        const userInfo = document.getElementById('user-info');
+        const userName = document.getElementById('user-name');
+        const actionButtons = document.querySelector('.flex.flex-col.sm\\:flex-row'); // 対局作成などのボタン群
+
+        // ログインボタンのクリックイベント
+        loginButton.addEventListener('click', async () => {
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (error) {
+                console.error("Login failed", error);
+                alert("ログインに失敗しました。");
+            }
+        });
+
+        // ログアウトボタンのクリックイベント
+        logoutButton.addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+            } catch (error) {
+                console.error("Logout failed", error);
+            }
+        });
+
+        // 認証状態の変更を監視
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // ログインしている場合
+                loginButton.classList.add('hidden');
+                userInfo.classList.remove('hidden');
+                userName.textContent = user.displayName || 'ゲスト';
+                actionButtons.classList.remove('hidden'); // 対局ボタンを表示
+            } else {
+                // ログアウトしている場合
+                loginButton.classList.remove('hidden');
+                userInfo.classList.add('hidden');
+                userName.textContent = '';
+                actionButtons.classList.add('hidden'); // 対局ボタンを非表示
+            }
+        });
+    </script>    
 
 </body>
 </html>
