@@ -80,6 +80,15 @@
                 <p id="save-feedback" class="text-green-600 h-6 mt-4 text-center"></p>
             </form>
         </div>
+
+        <div id="history-container" class="mt-12">
+                <h3 class="text-2xl font-bold text-gray-800 border-b pb-2 mb-4">対戦履歴</h3>
+                <ul id="history-list" class="space-y-3">
+                    </ul>
+                <p id="history-loading" class="text-gray-500">履歴を読み込んでいます...</p>
+            </div>
+
+        </div>
     </main>
      
     <!-- フッター -->
@@ -90,30 +99,21 @@
     </footer>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        // ▼▼▼【変更点1】header.jsをインポート ▼▼▼
+        import { loadHeader } from './js/header.js';
+        
+        // 既存のインポート文
         import { getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, get, set, query, orderByValue, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
-            authDomain: "julius-online-a5984.firebaseapp.com",
-            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "julius-online-a5984",
-            storageBucket: "julius-online-a5984.appspot.com",
-            messagingSenderId: "688172535832",
-            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
-        };
+        // ▼▼▼【変更点2】共通ヘッダーを読み込む関数を呼び出す ▼▼▼
+        loadHeader();
+
+        // ----- ここから下は、profile.html固有の処理（ほぼ変更なし）-----
         
-        let app;
-        if (!window.firebaseApp) {
-            app = initializeApp(firebaseConfig);
-            window.firebaseApp = app;
-        } else {
-            app = window.firebaseApp;
-        }
-        
-        const auth = getAuth(app);
-        const database = getDatabase(app);
+        // window.firebaseApp を使うように変更
+        const auth = getAuth(window.firebaseApp);
+        const database = getDatabase(window.firebaseApp);
         const provider = new GoogleAuthProvider();
 
         const dom = {
@@ -122,12 +122,10 @@
             profileContainer: document.getElementById('profile-container'),
             loginButton: document.getElementById('login-button'),
             logoutButton: document.getElementById('logout-button'),
-            
             displayMode: document.getElementById('profile-display-mode'),
             nicknameDisplay: document.getElementById('nickname-display'),
             bioDisplay: document.getElementById('bio-display'),
             editProfileButton: document.getElementById('edit-profile-button'),
-            
             editMode: document.getElementById('profile-edit-mode'),
             nicknameInput: document.getElementById('nickname-input'),
             bioInput: document.getElementById('bio-input'),
@@ -148,63 +146,134 @@
         function renderProfile(profileData, isOwnProfile) {
             dom.nicknameDisplay.textContent = profileData?.nickname || 'ニックネーム未設定';
             dom.bioDisplay.textContent = profileData?.bio || '自己紹介がありません。';
-
             dom.loadingContainer.classList.add('hidden');
             dom.profileContainer.classList.remove('hidden');
-            
             if (isOwnProfile) {
                 dom.logoutButton.classList.remove('hidden');
                 dom.editProfileButton.classList.remove('hidden');
-                
                 dom.nicknameInput.value = profileData?.nickname || '';
                 dom.bioInput.value = profileData?.bio || '';
             }
         }
 
         onAuthStateChanged(auth, async (user) => {
-            // ヘッダーの読み込みと更新
-            const headerPlaceholder = document.getElementById('header-placeholder');
-            const response = await fetch('header.html');
-            const data = await response.text();
-            headerPlaceholder.innerHTML = data;
-            const authStatusContainer = document.getElementById('header-auth-status');
+            // ▼▼▼【変更点3】ヘッダー関連の処理をここから削除 ▼▼▼
+            // const headerPlaceholder = ... などのコードは不要になります
             
-            if (user) {
-                authStatusContainer.innerHTML = `
-                    <div class="flex items-center space-x-4">
-                        <a href="profile.html?uid=${user.uid}" class="font-bold text-gray-700 hover:text-blue-600">${user.displayName || 'ゲスト'}</a>
-                    </div>
-                `;
-            } else {
-                authStatusContainer.innerHTML = `
-                    <a href="profile.html" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
-                        ログイン
-                    </a>
-                `;
-            }
-
-            // --- ページ本体のレンダリング ---
+            // --- ページ本体のレンダリング（ここは変更なし） ---
             if (!viewedUid) {
-                // URLにUIDがない場合
                 if (user) {
-                    // ログイン済みなら自分のページにリダイレクト
                     window.location.replace(`profile.html?uid=${user.uid}`);
                 } else {
-                    // 未ログインならログイン画面を表示
                     dom.loadingContainer.classList.add('hidden');
                     dom.loginContainer.classList.remove('hidden');
                 }
             } else {
-                // URLにUIDがある場合
                 const isOwnProfile = user && user.uid === viewedUid;
                 const profileData = await fetchUserProfile(viewedUid);
-                if (profileData || isOwnProfile) { // プロフィールが存在するか、自分のページなら表示
+                if (profileData || isOwnProfile) {
                     renderProfile(profileData, isOwnProfile);
                 } else {
                     dom.loadingContainer.textContent = 'ユーザーが見つかりません。';
                 }
             }
+            
+            // 対戦履歴の表示（ここは変更なし）
+            if (viewedUid) {
+                displayGameHistory(viewedUid, user ? user.uid : null);
+            }
         });
+
+        async function displayGameHistory(viewedUid, currentUid) {
+            const historyList = document.getElementById('history-list');
+            const historyLoading = document.getElementById('history-loading');
+
+            const userGamesRef = ref(database, `users/${viewedUid}/games`);
+            // タイムスタンプで並び替え、最新20件を取得
+            const gamesQuery = query(userGamesRef, orderByValue(), limitToLast(20));
+
+            try {
+                const snapshot = await get(gamesQuery);
+
+                if (!snapshot.exists()) {
+                    historyLoading.textContent = '対戦履歴はありません。';
+                    return;
+                }
+
+                const gamePromises = [];
+                snapshot.forEach(childSnapshot => {
+                    const gameId = childSnapshot.key;
+                    const timestamp = childSnapshot.val();
+                    // 各ゲームの詳細を取得するPromiseを作成
+                    gamePromises.push(get(ref(database, `games/${gameId}`)).then(gameSnap => ({
+                        id: gameId,
+                        data: gameSnap.val(),
+                        timestamp: timestamp
+                    })));
+                });
+
+                // 全てのゲーム詳細の取得を待つ
+                const games = await Promise.all(gamePromises);
+                // タイムスタンプの降順（新しい順）にソート
+                games.sort((a, b) => b.timestamp - a.timestamp);
+
+                historyLoading.classList.add('hidden');
+
+                for (const game of games) {
+                    if (!game.data) continue;
+
+                    const meta = game.data.meta;
+                    const players = meta.players;
+                    const opponentUid = players.white === viewedUid ? players.black : players.white;
+
+                    // 自分の結果を判定
+                    let resultText = '不明';
+                    let resultColor = 'text-gray-500';
+                    if (meta.winner) {
+                        if ((meta.winner === 'white' && players.white === viewedUid) || (meta.winner === 'black' && players.black === viewedUid)) {
+                            resultText = '勝利';
+                            resultColor = 'text-green-600 font-bold';
+                        } else {
+                            resultText = '敗北';
+                            resultColor = 'text-red-600 font-bold';
+                        }
+                    } else if (meta.status === 'in_progress') {
+                        resultText = '対戦中';
+                        resultColor = 'text-blue-500';
+                    } else {
+                        resultText = '引き分け等';
+                    }
+
+                    // 日付をフォーマット
+                    const date = new Date(game.timestamp).toLocaleString('ja-JP');
+
+                    // 対戦相手の情報を取得
+                    const opponentProfile = opponentUid ? await fetchUserProfile(opponentUid) : { nickname: 'オフライン' };
+                    // オフライン対戦でない場合のみリンクを生成
+                    const opponentName = opponentUid !== 'offline' && opponentUid
+                        ? `<a href="profile.html?uid=${opponentUid}" class="font-semibold text-blue-600 hover:underline">${opponentProfile?.nickname || 'ゲスト'}</a>`
+                        : `<span class="font-semibold">${opponentProfile?.nickname || 'オフライン'}</span>`;
+
+                    const listItem = document.createElement('li');
+                    listItem.className = 'p-3 bg-gray-50 rounded-md border flex justify-between items-center';
+                    listItem.innerHTML = `
+                        <div>
+                            <p class="text-sm text-gray-500">${date}</p>
+                            <p>vs ${opponentName}</p>
+                        </div>
+                        <div class="text-right">
+                             <p class="${resultColor}">${resultText}</p>
+                             <a href="game.html?id=${game.id}&mode=spectate" class="text-sm text-blue-600 hover:underline">棋譜を見る</a>
+                        </div>
+                    `;
+                    historyList.appendChild(listItem);
+                }
+
+            } catch (error) {
+                console.error("Failed to load game history:", error);
+                historyLoading.textContent = '履歴の読み込みに失敗しました。';
+            }
+        }
 
         // --- イベントリスナー ---
         dom.loginButton.addEventListener('click', () => {

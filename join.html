@@ -53,16 +53,10 @@
         </div>
     </footer>
 
-    <script>
-        // ヘッダーを読み込む
-        fetch('header.html')
-            .then(response => response.text())
-            .then(data => {
-                document.getElementById('header-placeholder').innerHTML = data;
-            });
-    </script>
-
     <script type="module">
+        import { loadHeader } from './js/header.js';
+        loadHeader();
+
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getDatabase, ref, get, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -160,17 +154,27 @@
                 }
                 
                 const updates = {};
+                const now = serverTimestamp();
                 const playerColor = white === 0 ? 'white' : 'black';
                 const timeLimit = gameData.meta.gameSettings.timeControl.timeLimit;
                 
-                updates[`/meta/players/${playerColor}`] = user.uid;
-                updates['/meta/status'] = 'in_progress';
-                updates['/meta/updatedAt'] = serverTimestamp();
-                updates['/moves/0/timers/white'] = timeLimit;
-                updates['/moves/0/timers/black'] = timeLimit;
-                updates['/moves/0/timestamp'] = serverTimestamp();
+                // 対局データの更新内容
+                updates[`/games/${gameId}/meta/players/${playerColor}`] = user.uid;
+                updates[`/games/${gameId}/meta/status`] = 'in_progress';
+                updates[`/games/${gameId}/meta/updatedAt`] = now;
+                updates[`/games/${gameId}/moves/0/timers/white`] = timeLimit;
+                updates[`/games/${gameId}/moves/0/timers/black`] = timeLimit;
+                updates[`/games/${gameId}/moves/0/timestamp`] = now;
 
-                await update(gameRef, updates);
+                // ユーザーデータの更新内容（対戦履歴の追加）
+                const creatorUid = white === 0 ? black : white; // 既に参加しているプレイヤーのUID
+                const joinerUid = user.uid; // 新しく参加するプレイヤーのUID
+                updates[`/users/${creatorUid}/games/${gameId}`] = now;
+                updates[`/users/${joinerUid}/games/${gameId}`] = now;
+
+                // 複数のパスに同時に書き込み
+                await update(ref(database), updates);
+
                 window.location.href = `game.html?id=${gameId}&mode=play`;
 
             } catch (error) {

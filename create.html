@@ -103,18 +103,12 @@
         </div>
     </footer>
 
-    <script>
-        // ヘッダーを読み込む
-        fetch('header.html')
-            .then(response => response.text())
-            .then(data => {
-                document.getElementById('header-placeholder').innerHTML = data;
-            });
-    </script>
-
     <script type="module">
+        import { loadHeader } from './js/header.js';
+        loadHeader();
+        
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, set, serverTimestamp, update } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         // signInAnonymouslyを削除し、onAuthStateChangedを追加
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
@@ -246,8 +240,14 @@
             };
 
             try {
-                // Save the initial game state to Firebase
-                await set(ref(database, 'games/' + gameId), gameData);
+                const updates = {};
+                // games/{gameId} にゲームデータをセット
+                updates[`/games/${gameId}`] = gameData;
+                // users/{uid}/games/{gameId} にタイムスタンプをセット
+                updates[`/users/${uid}/games/${gameId}`] = now;
+
+                // 複数のパスに同時に書き込む
+                await update(ref(database), updates);
                 
                 // Redirect to the game page
                 window.location.href = `game.html?id=${gameId}&mode=play`;

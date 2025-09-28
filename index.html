@@ -124,69 +124,29 @@
             <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
         </div>
     </footer>
-
+    
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { loadHeader } from './js/header.js';
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        
+        // 共通ヘッダーを読み込む
+        loadHeader();
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
-            authDomain: "julius-online-a5984.firebaseapp.com",
-            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "julius-online-a5984",
-            storageBucket: "julius-online-a5984.appspot.com",
-            messagingSenderId: "688172535832",
-            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
-        };
+        // index.html固有の処理（ログイン状態でボタンの表示を切り替える）
+        const auth = getAuth(window.firebaseApp);
+        onAuthStateChanged(auth, (user) => {
+            const actionButtonsContainer = document.getElementById('action-buttons-container');
+            const loginPrompt = document.getElementById('login-prompt');
 
-        let app;
-        if (!window.firebaseApp) {
-            app = initializeApp(firebaseConfig);
-            window.firebaseApp = app;
-        } else {
-            app = window.firebaseApp;
-        }
-
-        const auth = getAuth(app);
-        const headerPlaceholder = document.getElementById('header-placeholder');
-
-        fetch('header.html')
-            .then(response => response.text())
-            .then(data => {
-                headerPlaceholder.innerHTML = data;
-                const authStatusContainer = document.getElementById('header-auth-status');
-
-                onAuthStateChanged(auth, (user) => {
-                    const actionButtonsContainer = document.getElementById('action-buttons-container');
-                    const loginPrompt = document.getElementById('login-prompt');
-
-                    if (user) {
-                        // ログイン済み：ゲーム開始ボタンを表示
-                        actionButtonsContainer.classList.remove('hidden');
-                        loginPrompt.classList.add('hidden');
-
-                        // ヘッダー：自分のプロフィールへのリンクを表示
-                        authStatusContainer.innerHTML = `
-                            <div class="flex items-center space-x-4">
-                                <a href="profile.html?uid=${user.uid}" class="font-bold text-gray-700 hover:text-blue-600">${user.displayName || 'ゲスト'}</a>
-                            </div>
-                        `;
-                    } else {
-                        // 未ログイン：ログインを促すメッセージとリンクを表示
-                        actionButtonsContainer.classList.add('hidden');
-                        loginPrompt.classList.remove('hidden');
-                        // プロフィールページへのリンクに変更
-                        loginPrompt.innerHTML = `ゲームを始めるには、<a href="profile.html" class="text-blue-600 hover:underline font-bold">プロフィールページ</a>でログインしてください。`;
-
-                        // ヘッダー：ログインページへのリンクを表示
-                        authStatusContainer.innerHTML = `
-                            <a href="profile.html" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
-                                ログイン
-                            </a>
-                        `;
-                    }
-                });
-            });
+            if (user) {
+                actionButtonsContainer.classList.remove('hidden');
+                loginPrompt.classList.add('hidden');
+            } else {
+                actionButtonsContainer.classList.add('hidden');
+                loginPrompt.classList.remove('hidden');
+                loginPrompt.innerHTML = `ゲームを始めるには、<a href="profile.html" class="text-blue-600 hover:underline font-bold">プロフィールページ</a>でログインしてください。`;
+            }
+        });
     </script>
 </body>
 </html>

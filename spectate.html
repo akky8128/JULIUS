@@ -47,16 +47,10 @@
         </div>
     </footer>
 
-    <script>
-        // ヘッダーを読み込む
-        fetch('header.html')
-            .then(response => response.text())
-            .then(data => {
-                document.getElementById('header-placeholder').innerHTML = data;
-            });
-    </script>
+    <script type="module">
+        import { loadHeader } from './js/header.js';
+        loadHeader();
 
-    <script>
         const form = document.getElementById('spectate-form');
         form.addEventListener('submit', (e) => {
             e.preventDefault();
