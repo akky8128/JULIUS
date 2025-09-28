@@ -22,8 +22,6 @@
     <!-- メインコンテンツ -->
     <main class="container mx-auto px-6 py-12">
 
-        <section class="text-center">
-
         <!-- ヒーローセクション -->
         <section class="text-center">
             <h2 class="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl md:text-6xl">
@@ -34,42 +32,69 @@
             </p>
         </section>
 
-        <!-- ゲーム説明セクション -->
-        <section class="mt-16 bg-white p-8 rounded-lg shadow-lg">
-            <h3 class="text-2xl font-bold mb-6 text-center">ゲームのルール</h3>
-            <div class="space-y-8 md:space-y-0 md:grid md:grid-cols-2 md:gap-10">
-                <!-- 勝利条件 -->
-                <div>
-                    <h4 class="text-xl font-semibold mb-2">勝利条件</h4>
-                    <p class="text-gray-700">
-                        相手が操作できる手を完全になくすことで勝利となります。
-                    </p>
-                    <p class="mt-2 text-gray-600">
-                        最終的には、盤上にある相手の駒すべての上に自分の駒を重ねて「覆い尽くす」ことを目指します。
-                    </p>
-                </div>
+        <!-- ゲーム説明セクション (ここを更新しました) -->
+        <section class="mt-16 bg-white p-8 md:p-12 rounded-lg shadow-lg">
+            <h3 class="text-3xl font-bold mb-6 text-center">ゲームのルール</h3>
+            
+            <!-- 勝利条件 -->
+            <div class="max-w-3xl mx-auto text-center mb-16">
+                <h4 class="text-2xl font-semibold mb-3 text-gray-800">勝利条件</h4>
+                <p class="text-gray-600 leading-relaxed">
+                    相手が操作できる手を完全になくすことで勝利となります。最終的には、盤上にある相手の駒すべての上に自分の駒を重ねて「覆い尽くす」ことを目指します。
+                </p>
+            </div>
 
-                <!-- 基本操作 -->
-                <div>
-                    <h4 class="text-xl font-semibold mb-2">基本操作</h4>
-                    <p class="text-gray-700">
-                        自分のターンでは、以下のいずれかのアクションを行います。
-                    </p>
-                    <div class="mt-4 space-y-4">
-                        <div>
-                            <p class="font-bold">召喚 (Summon)</p>
-                            <p class="text-gray-600">空いているマスに自分の駒を1つ配置します。各プレイヤー8回まで可能です。</p>
-                        </div>
-                        <div>
-                            <p class="font-bold">移動 (Move)</p>
-                            <p class="text-gray-600">自分の駒が一番上にあるマスの駒を、好きな枚数かさねて縦か横に1マス動かします。駒を重ねることが戦略の鍵です。</p>
-                        </div>
-                        <div>
-                            <p class="font-bold">排除 (Eliminate)</p>
-                            <p class="text-gray-600">全駒を召喚後、自分の駒が一番上にあるマスから相手の駒を1つ取り除けます。</p>
-                        </div>
+            <!-- 基本操作（GIF画像付き） -->
+            <div class="space-y-16">
+                
+                <!-- 1. 召喚 -->
+                <div class="flex flex-col md:flex-row items-center gap-8 md:gap-12">
+                    <div class="md:w-1/2">
+                        <!-- 作成した summon.gif をここに配置してください -->
+                        <img src="summon.gif" alt="駒を召喚するアニメーション" class="rounded-lg shadow-md w-full max-w-sm mx-auto h-auto object-cover">
+                    </div>
+                    <div class="md:w-1/2">
+                        <h4 class="text-2xl font-bold mb-3 text-gray-800">
+                            <span class="text-blue-600 font-black mr-2">1.</span>召喚 (Summon)
+                        </h4>
+                        <p class="text-gray-700 leading-relaxed">
+                            空いているマスに自分の駒を1つ配置します。各プレイヤーは決められた枚数まで駒を召喚できます。序盤の配置が戦局を大きく左右します。
+                        </p>
                     </div>
                 </div>
+
+                <!-- 2. 移動 -->
+                <div class="flex flex-col md:flex-row-reverse items-center gap-8 md:gap-12">
+                    <div class="md:w-1/2">
+                        <!-- 作成した move.gif をここに配置してください -->
+                        <img src="move.gif" alt="駒を移動するアニメーション" class="rounded-lg shadow-md w-full max-w-sm mx-auto h-auto object-cover">
+                    </div>
+                    <div class="md:w-1/2">
+                        <h4 class="text-2xl font-bold mb-3 text-gray-800">
+                            <span class="text-green-600 font-black mr-2">2.</span>移動 (Move)
+                        </h4>
+                        <p class="text-gray-700 leading-relaxed">
+                            自分の駒が一番上にあるマスの駒を、好きな枚数かさねて縦か横に1マス動かします。相手の駒の上に移動して重ねることで、その駒の動きを封じることができます。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 3. 排除 -->
+                <div class="flex flex-col md:flex-row items-center gap-8 md:gap-12">
+                    <div class="md:w-1/2">
+                        <!-- 作成した eliminate.gif をここに配置してください -->
+                        <img src="eliminate.gif" alt="駒を排除するアニメーション" class="rounded-lg shadow-md w-full max-w-sm mx-auto h-auto object-cover">
+                    </div>
+                    <div class="md:w-1/2">
+                        <h4 class="text-2xl font-bold mb-3 text-gray-800">
+                           <span class="text-red-600 font-black mr-2">3.</span>排除 (Eliminate)
+                        </h4>
+                        <p class="text-gray-700 leading-relaxed">
+                            全駒を召喚した後は、召喚の代わりに「排除」が可能です。自分の駒が一番上にあるマスから、その直下にある相手の駒を1つ取り除くことができます。
+                        </p>
+                    </div>
+                </div>
+
             </div>
         </section>
 
@@ -179,3 +204,5 @@
                 });
             });
     </script>
+</body>
+</html>
