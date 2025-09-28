@@ -16,28 +16,12 @@
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    <!-- ヘッダー -->
-    <header class="bg-white shadow-md">
-        <div class="container mx-auto px-6 py-4">
-            <a href="index.html" class="text-3xl font-bold text-gray-900 no-underline hover:text-blue-600 transition-colors">JuliUs</a>
-            <p class="text-sm text-gray-600">Japan Ukeja Layer Innovative Users Service</p>
-        </div>
-    </header>
+    <!-- ヘッダーの読み込み場所 -->
+    <div id="header-placeholder"></div>
 
     <!-- メインコンテンツ -->
     <main class="container mx-auto px-6 py-12">
 
-        <div id="auth-container" class="text-center mb-12">
-            <div id="user-info" class="hidden items-center justify-center space-x-4">
-                <p class="text-lg">ようこそ、<span id="user-name" class="font-bold"></span>さん</p>
-                <button id="logout-button" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
-                    ログアウト
-                </button>
-            </div>
-            <button id="login-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-lg text-lg transition transform hover:scale-105">
-                <i class="fab fa-google mr-2"></i> Googleでログイン
-            </button>
-        </div>
         <section class="text-center">
 
         <!-- ヒーローセクション -->
@@ -119,7 +103,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        // signInWithPopup と GoogleAuthProvider を追加でインポートします
+        import { getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
@@ -131,53 +116,62 @@
             appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
         };
 
-        const app = initializeApp(firebaseConfig);
+        let app;
+        if (!window.firebaseApp) {
+            app = initializeApp(firebaseConfig);
+            window.firebaseApp = app;
+        } else {
+            app = window.firebaseApp;
+        }
+
         const auth = getAuth(app);
-        const provider = new GoogleAuthProvider();
+        const provider = new GoogleAuthProvider(); // ポップアップ用のプロバイダーを定義
+        const actionButtons = document.querySelector('.flex.flex-col.sm\\:flex-row');
+        const headerPlaceholder = document.getElementById('header-placeholder');
 
-        const loginButton = document.getElementById('login-button');
-        const logoutButton = document.getElementById('logout-button');
-        const userInfo = document.getElementById('user-info');
-        const userName = document.getElementById('user-name');
-        const actionButtons = document.querySelector('.flex.flex-col.sm\\:flex-row'); // 対局作成などのボタン群
+        fetch('header.html')
+            .then(response => response.text())
+            .then(data => {
+                headerPlaceholder.innerHTML = data;
+                const authStatusContainer = document.getElementById('header-auth-status');
 
-        // ログインボタンのクリックイベント
-        loginButton.addEventListener('click', async () => {
-            try {
-                await signInWithPopup(auth, provider);
-            } catch (error) {
-                console.error("Login failed", error);
-                alert("ログインに失敗しました。");
-            }
-        });
+                onAuthStateChanged(auth, (user) => {
+                    // アクションボタンの表示/非表示
+                    if (user) {
+                        actionButtons.classList.remove('hidden');
+                    } else {
+                        actionButtons.classList.add('hidden');
+                    }
 
-        // ログアウトボタンのクリックイベント
-        logoutButton.addEventListener('click', async () => {
-            try {
-                await signOut(auth);
-            } catch (error) {
-                console.error("Logout failed", error);
-            }
-        });
-
-        // 認証状態の変更を監視
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                // ログインしている場合
-                loginButton.classList.add('hidden');
-                userInfo.classList.remove('hidden');
-                userName.textContent = user.displayName || 'ゲスト';
-                actionButtons.classList.remove('hidden'); // 対局ボタンを表示
-            } else {
-                // ログアウトしている場合
-                loginButton.classList.remove('hidden');
-                userInfo.classList.add('hidden');
-                userName.textContent = '';
-                actionButtons.classList.add('hidden'); // 対局ボタンを非表示
-            }
-        });
-    </script>    
-
-</body>
-</html>
-
+                    // ヘッダーのログイン状態を更新
+                    if (user) {
+                        // ログイン済みの場合：ユーザー名とログアウトボタンを表示
+                        authStatusContainer.innerHTML = `
+                            <div class="flex items-center space-x-4">
+                                <p class="text-sm">ようこそ、<span class="font-bold">${user.displayName || 'ゲスト'}</span>さん</p>
+                                <button id="header-logout-button" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
+                                    ログアウト
+                                </button>
+                            </div>
+                        `;
+                        document.getElementById('header-logout-button').addEventListener('click', () => {
+                            signOut(auth).catch(error => console.error('Logout failed', error));
+                        });
+                    } else {
+                        // 未ログインの場合：ログインボタンを表示
+                        authStatusContainer.innerHTML = `
+                            <button id="header-login-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
+                                ログイン
+                            </button>
+                        `;
+                        // 新しく作成したログインボタンにクリックイベントを追加
+                        document.getElementById('header-login-button').addEventListener('click', () => {
+                            signInWithPopup(auth, provider)
+                                .catch((error) => {
+                                    console.error("Login with popup failed", error);
+                                });
+                        });
+                    }
+                });
+            });
+    </script>

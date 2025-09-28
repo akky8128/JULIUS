@@ -13,13 +13,8 @@
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    <!-- ヘッダー -->
-    <header class="bg-white shadow-md">
-        <div class="container mx-auto px-6 py-4">
-            <a href="index.html" class="text-3xl font-bold text-gray-900 no-underline hover:text-blue-600 transition-colors">JuliUs</a>
-            <p class="text-sm text-gray-600">Japan Ukeja Layer Innovative Users Service</p>
-        </div>
-    </header>
+    <!-- ヘッダーの読み込み場所 -->
+    <div id="header-placeholder"></div>
 
     <!-- メインコンテンツ -->
     <main class="container mx-auto px-6 py-12">
@@ -51,6 +46,15 @@
             <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
         </div>
     </footer>
+
+    <script>
+        // ヘッダーを読み込む
+        fetch('header.html')
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById('header-placeholder').innerHTML = data;
+            });
+    </script>
 
     <script>
         const form = document.getElementById('spectate-form');
