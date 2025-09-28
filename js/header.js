@@ -54,7 +54,7 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
                 `;
             } else {
                 authStatusContainer.innerHTML = `
-                    <a href="profile.html?uid=${user.uid}" class="font-bold text-yellow-600 hover:text-yellow-700">ニックネームを設定</a>
+                    <a href="profile.html?uid=${user.uid}" class="font-bold text-yellow-600 hover:text-yellow-700">ゲスト(プロフィールページでニックネームを設定してください。)</a>
                 `;
             }
         } else {
