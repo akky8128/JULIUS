@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JuliUs - ユーザープロフィール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- ヘッダーの読み込み場所 -->
+    <div id="header-placeholder"></div>
+
+    <!-- メインコンテンツ -->
+    <main class="container mx-auto px-6 py-12">
+
+        <!-- ローディング表示 -->
+        <div id="loading-container" class="text-center py-20">
+            <p class="text-xl text-gray-600">ユーザー情報を読み込んでいます...</p>
+        </div>
+
+        <!-- 未ログイン時 コンテンツ -->
+        <div id="login-container" class="hidden max-w-md mx-auto bg-white p-8 rounded-lg shadow-lg text-center">
+            <h2 class="text-3xl font-bold text-gray-900 mb-4">JuliUsへようこそ</h2>
+            <p class="text-gray-600 mb-8">サービスを利用するには、Googleアカウントでログインしてください。</p>
+            <button id="login-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition flex items-center justify-center">
+                <i class="fab fa-google mr-3"></i>
+                Googleでログイン
+            </button>
+        </div>
+        
+        <!-- プロフィール表示/編集 コンテンツ -->
+        <div id="profile-container" class="hidden max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg">
+            <div class="flex items-center justify-between mb-6">
+                 <h2 class="text-3xl font-bold text-gray-900">プロフィール</h2>
+                 <button id="logout-button" class="hidden bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">ログアウト</button>
+            </div>
+            
+            <!-- 表示モード -->
+            <div id="profile-display-mode">
+                <div class="mb-6">
+                    <label class="block text-lg font-semibold text-gray-700">ニックネーム</label>
+                    <p id="nickname-display" class="mt-2 text-xl p-3 bg-gray-100 rounded-md"></p>
+                </div>
+                <div class="mb-6">
+                    <label class="block text-lg font-semibold text-gray-700">自己紹介</label>
+                    <p id="bio-display" class="mt-2 text-base p-3 bg-gray-100 rounded-md whitespace-pre-wrap min-h-[100px]"></p>
+                </div>
+                <button id="edit-profile-button" class="hidden w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition">
+                    プロフィールを編集
+                </button>
+            </div>
+
+            <!-- 編集モード -->
+            <form id="profile-edit-mode" class="hidden">
+                 <div class="space-y-6">
+                    <div>
+                        <label for="nickname-input" class="block text-lg font-semibold text-gray-700">ニックネーム</label>
+                        <input type="text" id="nickname-input" name="nickname" required class="mt-2 p-3 w-full border rounded-md" maxlength="50">
+                    </div>
+                     <div>
+                        <label for="bio-input" class="block text-lg font-semibold text-gray-700">自己紹介</label>
+                        <textarea id="bio-input" name="bio" rows="4" class="mt-2 p-3 w-full border rounded-md" maxlength="300"></textarea>
+                    </div>
+                </div>
+                <div class="mt-8 flex gap-4">
+                    <button type="button" id="cancel-edit-button" class="w-1/2 bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-lg text-lg transition">
+                        キャンセル
+                    </button>
+                    <button type="submit" id="save-profile-button" class="w-1/2 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition">
+                        保存
+                    </button>
+                </div>
+                <p id="save-feedback" class="text-green-600 h-6 mt-4 text-center"></p>
+            </form>
+        </div>
+    </main>
+     
+    <!-- フッター -->
+    <footer class="bg-white mt-16">
+        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
+            <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
+        </div>
+    </footer>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
+            authDomain: "julius-online-a5984.firebaseapp.com",
+            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "julius-online-a5984",
+            storageBucket: "julius-online-a5984.appspot.com",
+            messagingSenderId: "688172535832",
+            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
+        };
+        
+        let app;
+        if (!window.firebaseApp) {
+            app = initializeApp(firebaseConfig);
+            window.firebaseApp = app;
+        } else {
+            app = window.firebaseApp;
+        }
+        
+        const auth = getAuth(app);
+        const database = getDatabase(app);
+        const provider = new GoogleAuthProvider();
+
+        const dom = {
+            loadingContainer: document.getElementById('loading-container'),
+            loginContainer: document.getElementById('login-container'),
+            profileContainer: document.getElementById('profile-container'),
+            loginButton: document.getElementById('login-button'),
+            logoutButton: document.getElementById('logout-button'),
+            
+            displayMode: document.getElementById('profile-display-mode'),
+            nicknameDisplay: document.getElementById('nickname-display'),
+            bioDisplay: document.getElementById('bio-display'),
+            editProfileButton: document.getElementById('edit-profile-button'),
+            
+            editMode: document.getElementById('profile-edit-mode'),
+            nicknameInput: document.getElementById('nickname-input'),
+            bioInput: document.getElementById('bio-input'),
+            saveProfileButton: document.getElementById('save-profile-button'),
+            cancelEditButton: document.getElementById('cancel-edit-button'),
+            saveFeedback: document.getElementById('save-feedback'),
+        };
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const viewedUid = urlParams.get('uid');
+
+        async function fetchUserProfile(uid) {
+            const userRef = ref(database, `users/${uid}/profile`);
+            const snapshot = await get(userRef);
+            return snapshot.exists() ? snapshot.val() : null;
+        }
+
+        function renderProfile(profileData, isOwnProfile) {
+            dom.nicknameDisplay.textContent = profileData?.nickname || 'ニックネーム未設定';
+            dom.bioDisplay.textContent = profileData?.bio || '自己紹介がありません。';
+
+            dom.loadingContainer.classList.add('hidden');
+            dom.profileContainer.classList.remove('hidden');
+            
+            if (isOwnProfile) {
+                dom.logoutButton.classList.remove('hidden');
+                dom.editProfileButton.classList.remove('hidden');
+                
+                dom.nicknameInput.value = profileData?.nickname || '';
+                dom.bioInput.value = profileData?.bio || '';
+            }
+        }
+
+        onAuthStateChanged(auth, async (user) => {
+            // ヘッダーの読み込みと更新
+            const headerPlaceholder = document.getElementById('header-placeholder');
+            const response = await fetch('header.html');
+            const data = await response.text();
+            headerPlaceholder.innerHTML = data;
+            const authStatusContainer = document.getElementById('header-auth-status');
+            
+            if (user) {
+                authStatusContainer.innerHTML = `
+                    <div class="flex items-center space-x-4">
+                        <a href="profile.html?uid=${user.uid}" class="font-bold text-gray-700 hover:text-blue-600">${user.displayName || 'ゲスト'}</a>
+                    </div>
+                `;
+            } else {
+                authStatusContainer.innerHTML = `
+                    <a href="profile.html" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
+                        ログイン
+                    </a>
+                `;
+            }
+
+            // --- ページ本体のレンダリング ---
+            if (!viewedUid) {
+                // URLにUIDがない場合
+                if (user) {
+                    // ログイン済みなら自分のページにリダイレクト
+                    window.location.replace(`profile.html?uid=${user.uid}`);
+                } else {
+                    // 未ログインならログイン画面を表示
+                    dom.loadingContainer.classList.add('hidden');
+                    dom.loginContainer.classList.remove('hidden');
+                }
+            } else {
+                // URLにUIDがある場合
+                const isOwnProfile = user && user.uid === viewedUid;
+                const profileData = await fetchUserProfile(viewedUid);
+                if (profileData || isOwnProfile) { // プロフィールが存在するか、自分のページなら表示
+                    renderProfile(profileData, isOwnProfile);
+                } else {
+                    dom.loadingContainer.textContent = 'ユーザーが見つかりません。';
+                }
+            }
+        });
+
+        // --- イベントリスナー ---
+        dom.loginButton.addEventListener('click', () => {
+            signInWithPopup(auth, provider).catch(console.error);
+        });
+
+        dom.logoutButton.addEventListener('click', () => {
+            signOut(auth).then(() => {
+                // ログアウト成功後にindex.htmlにリダイレクト
+                window.location.href = 'index.html';
+            }).catch(console.error);
+        });
+        
+        dom.editProfileButton.addEventListener('click', () => {
+            dom.displayMode.classList.add('hidden');
+            dom.editMode.classList.remove('hidden');
+        });
+
+        dom.cancelEditButton.addEventListener('click', () => {
+            dom.editMode.classList.add('hidden');
+            dom.displayMode.classList.remove('hidden');
+            dom.saveFeedback.textContent = '';
+        });
+
+        dom.editMode.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const user = auth.currentUser;
+            if (!user) return;
+
+            const newProfile = {
+                nickname: dom.nicknameInput.value.trim(),
+                bio: dom.bioInput.value.trim()
+            };
+            
+            dom.saveProfileButton.disabled = true;
+            try {
+                await set(ref(database, `users/${user.uid}/profile`), newProfile);
+                dom.saveFeedback.textContent = '保存しました！';
+
+                // 表示を更新
+                dom.nicknameDisplay.textContent = newProfile.nickname || 'ニックネーム未設定';
+                dom.bioDisplay.textContent = newProfile.bio || '自己紹介がありません。';
+
+                setTimeout(() => {
+                    dom.editMode.classList.add('hidden');
+                    dom.displayMode.classList.remove('hidden');
+                    dom.saveFeedback.textContent = '';
+                    dom.saveProfileButton.disabled = false;
+                }, 1500);
+
+            } catch (error) {
+                console.error("Profile save failed:", error);
+                dom.saveFeedback.textContent = '保存に失敗しました。';
+                dom.saveProfileButton.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

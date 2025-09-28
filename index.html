@@ -127,8 +127,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        // signInWithPopup と GoogleAuthProvider を追加でインポートします
-        import { getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
@@ -149,8 +148,6 @@
         }
 
         const auth = getAuth(app);
-        const provider = new GoogleAuthProvider(); // ポップアップ用のプロバイダーを定義
-        const actionButtons = document.querySelector('.flex.flex-col.sm\\:flex-row');
         const headerPlaceholder = document.getElementById('header-placeholder');
 
         fetch('header.html')
@@ -163,43 +160,30 @@
                     const actionButtonsContainer = document.getElementById('action-buttons-container');
                     const loginPrompt = document.getElementById('login-prompt');
 
-                    // ページ固有の処理 (アクションボタンの表示/非表示)
                     if (user) {
+                        // ログイン済み：ゲーム開始ボタンを表示
                         actionButtonsContainer.classList.remove('hidden');
                         loginPrompt.classList.add('hidden');
-                    } else {
-                        actionButtonsContainer.classList.add('hidden');
-                        loginPrompt.classList.remove('hidden');
-                    }
 
-                    // ヘッダーのログイン状態を更新
-                    if (user) {
-                        // ログイン済みの場合：ユーザー名とログアウトボタンを表示
+                        // ヘッダー：自分のプロフィールへのリンクを表示
                         authStatusContainer.innerHTML = `
                             <div class="flex items-center space-x-4">
-                                <p class="text-sm">ようこそ、<span class="font-bold">${user.displayName || 'ゲスト'}</span>さん</p>
-                                <button id="header-logout-button" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
-                                    ログアウト
-                                </button>
+                                <a href="profile.html?uid=${user.uid}" class="font-bold text-gray-700 hover:text-blue-600">${user.displayName || 'ゲスト'}</a>
                             </div>
                         `;
-                        document.getElementById('header-logout-button').addEventListener('click', () => {
-                            signOut(auth).catch(error => console.error('Logout failed', error));
-                        });
                     } else {
-                        // 未ログインの場合：ログインボタンを表示
+                        // 未ログイン：ログインを促すメッセージとリンクを表示
+                        actionButtonsContainer.classList.add('hidden');
+                        loginPrompt.classList.remove('hidden');
+                        // プロフィールページへのリンクに変更
+                        loginPrompt.innerHTML = `ゲームを始めるには、<a href="profile.html" class="text-blue-600 hover:underline font-bold">プロフィールページ</a>でログインしてください。`;
+
+                        // ヘッダー：ログインページへのリンクを表示
                         authStatusContainer.innerHTML = `
-                            <button id="header-login-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
+                            <a href="profile.html" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
                                 ログイン
-                            </button>
+                            </a>
                         `;
-                        // 新しく作成したログインボタンにクリックイベントを追加
-                        document.getElementById('header-login-button').addEventListener('click', () => {
-                            signInWithPopup(auth, provider)
-                                .catch((error) => {
-                                    console.error("Login with popup failed", error);
-                                });
-                        });
                     }
                 });
             });
