@@ -76,16 +76,15 @@
         <!-- アクションボタンセクション -->
         <section class="mt-16 text-center">
             <h3 class="text-2xl font-bold mb-8">ゲームを始める</h3>
-            <div class="flex flex-col sm:flex-row justify-center items-center gap-4">
-                <!-- 対局を作成するボタン -->
+            <p id="login-prompt" class="text-gray-500 hidden">ゲームを始めるにはログインしてください。</p>
+            
+            <div id="action-buttons-container" class="flex flex-col sm:flex-row justify-center items-center gap-4 mt-4">
                 <a href="create.html" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
                     対局を作成する
                 </a>
-                <!-- 対局に参加するボタン -->
                 <a href="join.html" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
                     対局に参加する
                 </a>
-                <!-- 対局を観戦するボタン -->
                 <a href="spectate.html" class="w-full sm:w-auto bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
                     対局を観戦する
                 </a>
@@ -136,11 +135,16 @@
                 const authStatusContainer = document.getElementById('header-auth-status');
 
                 onAuthStateChanged(auth, (user) => {
-                    // アクションボタンの表示/非表示
+                    const actionButtonsContainer = document.getElementById('action-buttons-container');
+                    const loginPrompt = document.getElementById('login-prompt');
+
+                    // ページ固有の処理 (アクションボタンの表示/非表示)
                     if (user) {
-                        actionButtons.classList.remove('hidden');
+                        actionButtonsContainer.classList.remove('hidden');
+                        loginPrompt.classList.add('hidden');
                     } else {
-                        actionButtons.classList.add('hidden');
+                        actionButtonsContainer.classList.add('hidden');
+                        loginPrompt.classList.remove('hidden');
                     }
 
                     // ヘッダーのログイン状態を更新
