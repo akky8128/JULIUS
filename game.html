@@ -303,6 +303,7 @@
 
                 // --- ゲーム終了状態を検知してモーダルを表示 ---
                 if (this.gameData.meta.status === 'completed' && this.uiGameState !== 'ENDED') {
+                    playSound(this.sounds.end);
                     const winner = this.gameData.meta.winner;
                     const reason = this.gameData.meta.winReason;
                     this.showModal(`${winner === 'white' ? '白' : '黒'}の勝利！`, reason);
@@ -890,7 +891,6 @@
 
             async endGame(winner, reason) {
                 if (this.timerInterval) clearInterval(this.timerInterval);
-                playSound(this.sounds.end);
                 this.gameData.meta.status = 'completed';
                 this.gameData.meta.winner = winner;
                 this.gameData.meta.winReason = reason;
