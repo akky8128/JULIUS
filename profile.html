@@ -37,13 +37,26 @@
         
         <!-- プロフィール表示/編集 コンテンツ -->
         <div id="profile-container" class="hidden max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg">
-            <div class="flex items-center justify-between mb-6">
-                 <h2 class="text-3xl font-bold text-gray-900">プロフィール</h2>
-                 <button id="logout-button" class="hidden bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">ログアウト</button>
-            </div>
-            
             <!-- 表示モード -->
             <div id="profile-display-mode">
+                <div class="flex items-center justify-between mb-6">
+                     <h2 class="text-3xl font-bold text-gray-900">プロフィール</h2>
+                     <button id="logout-button" class="hidden bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition">ログアウト</button>
+                </div>
+
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex space-x-4">
+                        <div id="following-btn" class="cursor-pointer hover:opacity-75">
+                            <span id="following-count" class="font-bold text-lg">0</span>
+                            <span class="text-gray-600">フォロー中</span>
+                        </div>
+                        <div id="followers-btn" class="cursor-pointer hover:opacity-75">
+                            <span id="followers-count" class="font-bold text-lg">0</span>
+                            <span class="text-gray-600">フォロワー</span>
+                        </div>
+                    </div>
+                    <div id="follow-button-container"></div>
+                </div>
                 <div class="mb-6">
                     <label class="block text-lg font-semibold text-gray-700">ニックネーム</label>
                     <p id="nickname-display" class="mt-2 text-xl p-3 bg-gray-100 rounded-md"></p>
@@ -89,6 +102,17 @@
             </div>
 
         </div>
+
+        <div id="follow-list-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center">
+                    <h3 id="modal-title" class="text-xl font-bold"></h3>
+                    <button id="modal-close-button" class="text-3xl font-light leading-none text-gray-500 hover:text-gray-800">&times;</button>
+                </div>
+                <div id="modal-user-list" class="p-4 max-h-[60vh] overflow-y-auto">
+                    </div>
+            </div>
+        </div>
     </main>
      
     <!-- フッター -->
@@ -104,7 +128,7 @@
         
         // 既存のインポート文
         import { getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getDatabase, ref, get, set, query, orderByValue, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, get, set, query, orderByValue, limitToLast, update, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
         // ▼▼▼【変更点2】共通ヘッダーを読み込む関数を呼び出す ▼▼▼
         loadHeader();
@@ -146,6 +170,8 @@
         function renderProfile(profileData, isOwnProfile) {
             dom.nicknameDisplay.textContent = profileData?.nickname || 'ニックネーム未設定';
             dom.bioDisplay.textContent = profileData?.bio || '自己紹介がありません。';
+            document.getElementById('following-count').textContent = profileData?.followingCount || 0;
+            document.getElementById('followers-count').textContent = profileData?.followersCount || 0;
             dom.loadingContainer.classList.add('hidden');
             dom.profileContainer.classList.remove('hidden');
             if (isOwnProfile) {
@@ -176,6 +202,11 @@
                 } else {
                     dom.loadingContainer.textContent = 'ユーザーが見つかりません。';
                 }
+            }
+
+            // フォローボタンの表示を処理
+            if (viewedUid) {
+                handleFollowButton(viewedUid, user);
             }
             
             // 対戦履歴の表示（ここは変更なし）
@@ -275,7 +306,89 @@
             }
         }
 
+        async function handleFollowButton(viewedUid, currentUser) {
+            const container = document.getElementById('follow-button-container');
+            container.innerHTML = ''; // コンテナを初期化
+
+            // 自分のプロフィール、または未ログインの場合はボタンを表示しない
+            if (!currentUser || currentUser.uid === viewedUid) {
+                return;
+            }
+
+            // 自分が相手をフォローしているか確認
+            const followingRef = ref(database, `users/${currentUser.uid}/following/${viewedUid}`);
+            const snapshot = await get(followingRef);
+            const isFollowing = snapshot.exists();
+
+            // ボタンを作成
+            const followButton = document.createElement('button');
+            followButton.className = 'font-bold py-2 px-4 rounded-lg text-sm transition';
+            
+            if (isFollowing) {
+                followButton.textContent = 'フォロー解除';
+                followButton.classList.add('bg-gray-200', 'hover:bg-gray-300', 'text-gray-800');
+            } else {
+                followButton.textContent = 'フォローする';
+                followButton.classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-white');
+            }
+            
+            container.appendChild(followButton);
+
+            // ボタンクリック時の処理
+            followButton.addEventListener('click', async () => {
+                followButton.disabled = true; // 連打防止
+                const updates = {};
+                
+                if (isFollowing) {
+                    // --- アンフォロー処理 ---
+                    // 自分のfollowingリストから相手を削除
+                    updates[`/users/${currentUser.uid}/following/${viewedUid}`] = null; 
+                    // 相手のfollowersリストから自分を削除
+                    updates[`/users/${viewedUid}/followers/${currentUser.uid}`] = null;
+                    // カウントを1減らす
+                    updates[`/users/${currentUser.uid}/profile/followingCount`] = increment(-1);
+                    updates[`/users/${viewedUid}/profile/followersCount`] = increment(-1);
+
+                } else {
+                    // --- フォロー処理 ---
+                    // 自分のfollowingリストに相手を追加
+                    updates[`/users/${currentUser.uid}/following/${viewedUid}`] = true;
+                    // 相手のfollowersリストに自分を追加
+                    updates[`/users/${viewedUid}/followers/${currentUser.uid}`] = true;
+                    // カウントを1増やす
+                    updates[`/users/${currentUser.uid}/profile/followingCount`] = increment(1);
+                    updates[`/users/${viewedUid}/profile/followersCount`] = increment(1);
+                }
+
+                try {
+                    await update(ref(database), updates);
+                    // 成功したらページを再読み込みして表示を更新
+                    window.location.reload();
+                } catch (error) {
+                    console.error("Follow/Unfollow failed:", error);
+                    alert('処理に失敗しました。');
+                    followButton.disabled = false;
+                }
+            });
+        }
+
         // --- イベントリスナー ---
+        document.getElementById('following-btn').addEventListener('click', () => {
+            showFollowList(viewedUid, 'following');
+        });
+
+        document.getElementById('followers-btn').addEventListener('click', () => {
+            showFollowList(viewedUid, 'followers');
+        });
+
+        document.getElementById('modal-close-button').addEventListener('click', closeModal);
+        document.getElementById('follow-list-modal').addEventListener('click', (e) => {
+            // 背景クリックで閉じる
+            if (e.target.id === 'follow-list-modal') {
+                closeModal();
+            }
+        });
+
         dom.loginButton.addEventListener('click', () => {
             signInWithPopup(auth, provider).catch(console.error);
         });
@@ -310,7 +423,23 @@
             
             dom.saveProfileButton.disabled = true;
             try {
-                await set(ref(database, `users/${user.uid}/profile`), newProfile);
+                const profileRef = ref(database, `users/${user.uid}/profile`);
+                
+                // 1. 現在のプロフィールデータを取得
+                const snapshot = await get(profileRef);
+                const currentProfile = snapshot.exists() ? snapshot.val() : {};
+
+                // 2. 新しいデータと既存のデータをマージ
+                const updatedProfile = {
+                    ...currentProfile, // 既存のデータを保持
+                    nickname: dom.nicknameInput.value.trim(),
+                    bio: dom.bioInput.value.trim(),
+                    // 存在しない場合のみ、カウンターを0で初期化
+                    followingCount: currentProfile.followingCount || 0,
+                    followersCount: currentProfile.followersCount || 0
+                };
+
+                await set(profileRef, updatedProfile);
                 dom.saveFeedback.textContent = '保存しました！';
 
                 // 表示を更新
@@ -330,6 +459,123 @@
                 dom.saveProfileButton.disabled = false;
             }
         });
+
+        const modal = document.getElementById('follow-list-modal');
+        
+        function openModal() {
+            modal.classList.remove('hidden');
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+        }
+
+        async function showFollowList(uid, type) {
+            const title = document.getElementById('modal-title');
+            const userListContainer = document.getElementById('modal-user-list');
+            const currentUser = auth.currentUser;
+
+            title.textContent = type === 'following' ? 'フォロー中' : 'フォロワー';
+            userListContainer.innerHTML = '<p class="text-gray-500">読み込んでいます...</p>';
+            openModal();
+
+            try {
+                const listRef = ref(database, `users/${uid}/${type}`);
+                const listSnapshot = await get(listRef);
+
+                if (!listSnapshot.exists()) {
+                    userListContainer.innerHTML = '<p class="text-gray-500">ユーザーがいません。</p>';
+                    return;
+                }
+
+                const userIds = Object.keys(listSnapshot.val());
+                userListContainer.innerHTML = ''; // コンテナをクリア
+
+                // 各ユーザーの情報を取得
+                for (const userId of userIds) {
+                    const profile = await fetchUserProfile(userId);
+                    const userDiv = document.createElement('div');
+                    userDiv.className = 'py-2 flex justify-between items-center';
+                    
+                    const nickname = profile?.nickname || 'ゲスト';
+                    let followButtonHtml = '';
+
+                    // 自分以外のユーザーにフォローボタンを表示
+                    if (currentUser && currentUser.uid !== userId) {
+                        const followingRef = ref(database, `users/${currentUser.uid}/following/${userId}`);
+                        const isFollowing = (await get(followingRef)).exists();
+                        
+                        followButtonHtml = `
+                            <button class="js-modal-follow-btn font-bold py-1 px-3 rounded-lg text-sm transition ${isFollowing ? 'bg-gray-200 hover:bg-gray-300 text-gray-800' : 'bg-blue-600 hover:bg-blue-700 text-white'}" data-uid="${userId}">
+                                ${isFollowing ? 'フォロー解除' : 'フォローする'}
+                            </button>
+                        `;
+                    }
+
+                    userDiv.innerHTML = `
+                        <a href="profile.html?uid=${userId}" class="font-semibold text-blue-600 hover:underline">${nickname}</a>
+                        <div>${followButtonHtml}</div>
+                    `;
+                    userListContainer.appendChild(userDiv);
+                }
+
+                // モーダル内のフォローボタンにイベントを設定
+                document.querySelectorAll('.js-modal-follow-btn').forEach(btn => {
+                    btn.addEventListener('click', handleModalFollowClick);
+                });
+
+            } catch (error) {
+                console.error("Failed to load follow list:", error);
+                userListContainer.innerHTML = '<p class="text-red-500">リストの読み込みに失敗しました。</p>';
+            }
+        }
+
+        // モーダル内のフォロー/アンフォロー処理
+        async function handleModalFollowClick(event) {
+            const button = event.currentTarget;
+            const targetUid = button.dataset.uid;
+            const currentUser = auth.currentUser;
+
+            if (!currentUser || !targetUid) return;
+
+            button.disabled = true;
+            const isCurrentlyFollowing = button.textContent.trim() === 'フォロー解除';
+            
+            const updates = {};
+            if (isCurrentlyFollowing) { // アンフォロー
+                updates[`/users/${currentUser.uid}/following/${targetUid}`] = null;
+                updates[`/users/${targetUid}/followers/${currentUser.uid}`] = null;
+                updates[`/users/${currentUser.uid}/profile/followingCount`] = increment(-1);
+                updates[`/users/${targetUid}/profile/followersCount`] = increment(-1);
+            } else { // フォロー
+                updates[`/users/${currentUser.uid}/following/${targetUid}`] = true;
+                updates[`/users/${targetUid}/followers/${currentUser.uid}`] = true;
+                updates[`/users/${currentUser.uid}/profile/followingCount`] = increment(1);
+                updates[`/users/${targetUid}/profile/followersCount`] = increment(1);
+            }
+
+            try {
+                await update(ref(database), updates);
+                // ボタンの表示を即時更新
+                button.textContent = isCurrentlyFollowing ? 'フォローする' : 'フォロー解除';
+                button.classList.toggle('bg-gray-200');
+                button.classList.toggle('hover:bg-gray-300');
+                button.classList.toggle('text-gray-800');
+                button.classList.toggle('bg-blue-600');
+                button.classList.toggle('hover:bg-blue-700');
+                button.classList.toggle('text-white');
+                // ページ全体のカウンターも更新（ページを再読み込みしたくないため）
+                if (viewedUid === currentUser.uid || viewedUid === targetUid) {
+                    const profile = await fetchUserProfile(viewedUid);
+                    renderProfile(profile, currentUser && currentUser.uid === viewedUid);
+                }
+            } catch (error) {
+                console.error("Follow/Unfollow failed:", error);
+                alert('処理に失敗しました。');
+            } finally {
+                button.disabled = false;
+            }
+        }
     </script>
 </body>
 </html>
