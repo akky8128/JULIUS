@@ -148,6 +148,12 @@
                 this.currentTurnState = null;
                 this.timerInterval = null;
                 this.viewingTurnNumber = 0;
+                this.previousViewingTurnNumber = -1; // -1で初期化し、初回読み込みと区別
+                this.isInitialLoad = true; // 初回読み込みフラグ
+                this.sounds = {
+                    move: new Audio('sounds/move.mp3'),
+                    end: new Audio('sounds/end.mp3')
+                };
                 this.uiGameState = 'IDLE';
                 this.selectedCoords = null;
                 this.lastMoveDest = null;
@@ -340,6 +346,13 @@
             }
 
             render() {
+                // 初回読み込み時でなく、かつ表示手数が前回から変わっていれば音を鳴らす
+                if (!this.isInitialLoad && this.viewingTurnNumber !== this.previousViewingTurnNumber) {
+                    playSound(this.sounds.move);
+                }
+                this.previousViewingTurnNumber = this.viewingTurnNumber;
+                this.isInitialLoad = false; // 最初の描画が終わったらフラグを下ろす
+
                 if (!this.gameData || !this.gameData.moves) return;
                 const stateToRender = this.uiGameState === 'IDLE' ? this.gameData.moves[this.viewingTurnNumber] : this.currentTurnState;
                 if (!stateToRender) return;
@@ -877,6 +890,7 @@
 
             async endGame(winner, reason) {
                 if (this.timerInterval) clearInterval(this.timerInterval);
+                playSound(this.sounds.end);
                 this.gameData.meta.status = 'completed';
                 this.gameData.meta.winner = winner;
                 this.gameData.meta.winReason = reason;
@@ -978,6 +992,14 @@
         
         const game = new GameManager();
         game.init();
+
+        function playSound(sound) {
+            sound.currentTime = 0; // 再生位置をリセット
+            sound.play().catch(e => {
+                // ユーザーがまだページを操作していない場合、再生は失敗することがある
+                // コンソールにエラーは表示せず、失敗は無視する
+            });
+        }
 
     </script>
 </body>
