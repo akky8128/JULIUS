@@ -40,43 +40,28 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
     dropdown.addEventListener('click', e => e.stopPropagation());
 
     onAuthStateChanged(auth, async (user) => {
-        // --- ▼▼▼ ここから修正 ▼▼▼ ---
-        if (invitationsListener) invitationsListener(); // 古いリスナーを解除
+        if (invitationsListener) invitationsListener();
 
         if (user) {
-            // --- ログイン状態の表示を復活 ---
             const userProfileRef = ref(database, `users/${user.uid}/profile`);
             const snapshot = await get(userProfileRef);
             const userNickname = snapshot.exists() ? snapshot.val().nickname : null;
 
             if (userNickname) {
-                authStatusContainer.innerHTML = `
-                    <a href="profile.html?uid=${user.uid}" class="font-bold text-gray-700 hover:text-blue-600">${userNickname}</a>
-                `;
+                authStatusContainer.innerHTML = `<a href="profile.html?uid=${user.uid}" class="font-bold text-gray-700 hover:text-blue-600">${userNickname}</a>`;
             } else {
-                authStatusContainer.innerHTML = `
-                    <a href="profile.html?uid=${user.uid}" class="font-bold text-yellow-600 hover:text-yellow-700">ニックネームを設定</a>
-                `;
+                authStatusContainer.innerHTML = `<a href="profile.html?uid=${user.uid}" class="font-bold text-yellow-600 hover:text-yellow-700">ニックネームを設定</a>`;
             }
 
-            // --- 通知機能 ---
             const invitationsRef = ref(database, `invitations/${user.uid}`);
             invitationsListener = onValue(invitationsRef, (snapshot) => {
-                const invitations = snapshot.val();
-                updateNotifications(invitations || {});
+                updateNotifications(snapshot.val() || {});
             });
 
         } else {
-            // --- 未ログイン状態の表示 ---
-            authStatusContainer.innerHTML = `
-                <a href="profile.html" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">
-                    ログイン
-                </a>
-            `;
-            // 通知もクリア
+            authStatusContainer.innerHTML = `<a href="profile.html" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">ログイン</a>`;
             updateNotifications({});
         }
-        // --- ▲▲▲ ここまで修正 ▲▲▲ ---
     });
 }
 
@@ -86,15 +71,15 @@ async function updateNotifications(invitations) {
     const bellContainer = document.getElementById('notification-container');
 
     if (!auth.currentUser) {
-        bellContainer.classList.add('hidden'); // 未ログインならベルごと隠す
+        bellContainer.classList.add('hidden');
         return;
     }
-    bellContainer.classList.remove('hidden'); // ログイン済みなら表示
+    bellContainer.classList.remove('hidden');
 
     list.innerHTML = '';
     const validInvitations = [];
+    let notifiedGameIds = JSON.parse(sessionStorage.getItem('notifiedGameIds')) || [];
     let shouldPlaySound = false;
-    const existingNotifications = parseInt(badge.textContent) || 0;
 
     for (const gameId in invitations) {
         const inv = invitations[gameId];
@@ -103,21 +88,26 @@ async function updateNotifications(invitations) {
 
         if (gameSnap.exists() && gameSnap.val() === 'waiting') {
             validInvitations.push({ gameId, ...inv });
+            // --- ▼▼▼ 通知音を鳴らす条件を修正 ▼▼▼ ---
+            if (!notifiedGameIds.includes(gameId)) {
+                shouldPlaySound = true;
+                notifiedGameIds.push(gameId);
+            }
         } else {
             remove(ref(database, `invitations/${auth.currentUser.uid}/${gameId}`));
         }
     }
+    
+    // sessionStorageに保存
+    sessionStorage.setItem('notifiedGameIds', JSON.stringify(notifiedGameIds));
 
-    if (validInvitations.length > existingNotifications) {
-        shouldPlaySound = true;
+    if (shouldPlaySound) {
+        notificationSound.play().catch(() => {});
     }
 
     if (validInvitations.length > 0) {
         badge.classList.remove('hidden');
         badge.textContent = validInvitations.length;
-        if (shouldPlaySound) {
-            notificationSound.play().catch(() => {});
-        }
 
         validInvitations.forEach(inv => {
             const item = document.createElement('a');
@@ -125,7 +115,7 @@ async function updateNotifications(invitations) {
             item.className = 'block p-3 hover:bg-gray-100 border-b';
             item.innerHTML = `
                 <p class="font-semibold">${inv.inviterNickname || 'ゲスト'}さん</p>
-                <p class="text-sm text-gray-600">があなたに対局を申し込みました。</p>
+                <p class="text-sm text-gray-600">から対局に招待されました。</p>
             `;
             list.appendChild(item);
         });
