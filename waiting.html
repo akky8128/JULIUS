@@ -21,10 +21,8 @@
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    <!-- ヘッダーの読み込み場所 -->
     <div id="header-placeholder"></div>
 
-    <!-- メインコンテンツ -->
     <main class="container mx-auto px-6 py-12">
         <div class="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg text-center">
             <h2 class="text-3xl font-bold text-gray-900 mb-4">対戦相手を待っています...</h2>
@@ -44,12 +42,24 @@
             </div>
 
              <div class="mt-12 border-t pt-6">
+                <button id="invite-friend-btn" class="mb-4 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition">
+                    <i class="fas fa-user-plus mr-2"></i>友達を招待する
+                </button>
                 <a href="index.html" class="text-gray-500 hover:text-gray-700 transition">対局をキャンセルしてトップに戻る</a>
-            </div>
+             </div>
         </div>
     </main>
 
-    <!-- フッター -->
+    <div id="invite-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h3 class="text-xl font-bold">フォロー中の友達を招待</h3>
+                <button id="invite-modal-close-btn" class="text-3xl font-light leading-none text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            <div id="invite-user-list" class="p-4 max-h-[60vh] overflow-y-auto"></div>
+        </div>
+    </div>
+
     <footer class="bg-white mt-16">
         <div class="container mx-auto px-6 py-4 text-center text-gray-500">
             <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
@@ -59,10 +69,12 @@
     <script type="module">
         import { loadHeader } from './js/header.js';
         loadHeader();
-        
+
+        // ▼▼▼ Firebaseのインポート文を修正 ▼▼▼
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, onValue, off, onDisconnect, get, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        // ▲▲▲ ここまで ▲▲▲
 
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
@@ -73,15 +85,19 @@
             messagingSenderId: "688172535832",
             appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
         };
+        
+        let app;
+        if (!window.firebaseApp) { app = initializeApp(firebaseConfig); window.firebaseApp = app; }
+        else { app = window.firebaseApp; }
 
-        const app = initializeApp(firebaseConfig);
         const database = getDatabase(app);
-        const auth = getAuth(app); // 認証を追加
+        const auth = getAuth(app);
 
         const gameIdDisplay = document.getElementById('game-id-display');
         const copyButton = document.getElementById('copy-button');
         const copyFeedback = document.getElementById('copy-feedback');
-        const mainContent = document.querySelector('main');
+        
+        const matchFoundSound = new Audio('sounds/match-found.mp3');
 
         const urlParams = new URLSearchParams(window.location.search);
         const gameId = urlParams.get('id');
@@ -94,24 +110,40 @@
                         copyButton.disabled = true;
                         return;
                     }
+                    
+                    const gameStatusRef = ref(database, `games/${gameId}/meta/status`);
+                    // 接続が切れたら対局を破棄する予約
+                    onDisconnect(gameStatusRef).set('abandoned');
+                    
                     gameIdDisplay.textContent = gameId;
 
                     copyButton.addEventListener('click', () => {
                         navigator.clipboard.writeText(gameId).then(() => {
                             copyFeedback.textContent = 'コピーしました！';
                             setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
-                        }).catch(err => {
-                            copyFeedback.textContent = 'コピーに失敗しました。';
                         });
                     });
 
-                    const gameStatusRef = ref(database, `games/${gameId}/meta/status`);
                     const unsubscribe = onValue(gameStatusRef, (snapshot) => {
                         if (snapshot.val() === 'in_progress') {
                             unsubscribe();
-                            window.location.href = `game.html?id=${gameId}&mode=play`;
+                            const redirectToGame = () => {
+                                // 画面遷移する前に、接続切れの予約をキャンセルする
+                                onDisconnect(gameStatusRef).cancel();
+                                window.location.href = `game.html?id=${gameId}&mode=play`;
+                            };
+
+                            matchFoundSound.play().then(() => {
+                                matchFoundSound.addEventListener('ended', redirectToGame);
+                            }).catch(error => {
+                                redirectToGame();
+                            });
                         }
                     });
+                    
+                    // ▼▼▼ 招待モーダルの設定関数を呼び出すコードを追加 ▼▼▼
+                    setupInviteModal(user);
+
                 } else {
                     alert("ログインが必要です。トップページに戻ります。");
                     window.location.href = 'index.html';
@@ -121,6 +153,56 @@
             
         init();
 
+        function setupInviteModal(currentUser) {
+            const inviteModal = document.getElementById('invite-modal');
+            
+            document.getElementById('invite-friend-btn').addEventListener('click', async () => {
+                const userList = document.getElementById('invite-user-list');
+                userList.innerHTML = '<p>読み込み中...</p>';
+                inviteModal.classList.remove('hidden');
+
+                const followingRef = ref(database, `users/${currentUser.uid}/following`);
+                const snapshot = await get(followingRef);
+                userList.innerHTML = '';
+                
+                if (!snapshot.exists()) {
+                    userList.innerHTML = '<p>フォロー中のユーザーがいません。</p>';
+                    return;
+                }
+                const followingIds = Object.keys(snapshot.val());
+
+                for (const uid of followingIds) {
+                    const profileSnap = await get(ref(database, `users/${uid}/profile`));
+                    const nickname = profileSnap.exists() ? profileSnap.val().nickname : 'ゲスト';
+
+                    const item = document.createElement('div');
+                    item.className = 'py-2 flex justify-between items-center';
+                    item.innerHTML = `<span>${nickname}</span><button class="invite-btn bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600" data-uid="${uid}">招待</button>`;
+                    userList.appendChild(item);
+                }
+            });
+
+            document.getElementById('invite-modal-close-btn').addEventListener('click', () => inviteModal.classList.add('hidden'));
+
+            document.getElementById('invite-user-list').addEventListener('click', async (e) => {
+                if (e.target.classList.contains('invite-btn')) {
+                    const btn = e.target;
+                    const targetUid = btn.dataset.uid;
+                    btn.disabled = true;
+                    btn.textContent = '招待済み';
+
+                    const inviterProfileSnap = await get(ref(database, `users/${currentUser.uid}/profile`));
+                    const inviterNickname = inviterProfileSnap.exists() ? inviterProfileSnap.val().nickname : 'ゲスト';
+                    
+                    const invitationRef = ref(database, `invitations/${targetUid}/${gameId}`);
+                    await set(invitationRef, {
+                        inviterUid: currentUser.uid,
+                        inviterNickname: inviterNickname,
+                        timestamp: serverTimestamp()
+                    });
+                }
+            });
+        }
     </script>
 </body>
 </html>

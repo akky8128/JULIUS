@@ -79,6 +79,13 @@
         const errorMessage = document.getElementById('error-message');
         const gameIdInput = document.getElementById('game-id-input');
 
+        // URLパラメータから対局IDを取得して入力欄に自動入力する
+        const urlParams = new URLSearchParams(window.location.search);
+        const gameIdFromInvite = urlParams.get('id');
+        if (gameIdFromInvite) {
+            gameIdInput.value = gameIdFromInvite;
+        }
+
         const joinButton = document.getElementById('join-game-button');
         const buttonText = document.getElementById('button-text');
         const buttonSpinner = document.getElementById('button-spinner');

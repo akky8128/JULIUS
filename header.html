@@ -4,6 +4,23 @@
             <a href="index.html" class="text-3xl font-bold text-gray-900 no-underline hover:text-blue-600 transition-colors">JuliUs</a>
             <p class="text-sm text-gray-600">Japan Ukeja Layer Innovative Users Service</p>
         </div>
+        <div class="relative mr-6">
+            <button id="notification-bell" class="relative text-gray-600 hover:text-gray-800 focus:outline-none">
+                <i class="fas fa-bell text-xl"></i>
+                <span id="notification-badge" class="hidden absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center"></span>
+            </button>
+            <div id="notification-dropdown" class="hidden absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-xl z-20">
+                <div class="p-3 border-b font-bold text-gray-800">通知</div>
+                <div id="notification-list" class="max-h-80 overflow-y-auto">
+                    </div>
+            </div>
+        </div>
+        <div id="notification-container" class="relative mr-6">
+            <button id="notification-bell" >
+                </button>
+            <div id="notification-dropdown" >
+                </div>
+        </div>
         <div id="header-auth-status">
             </div>
     </div>
