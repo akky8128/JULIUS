@@ -897,7 +897,6 @@
                 this.gameData.meta.updatedAt = serverTimestamp(); // サーバー時刻を保存
 
                 await this.saveGameData(); 
-                this.showModal( `${winner === 'white' ? '白' : '黒'}の勝利！`, reason);
             }
 
             async saveGameData() {
