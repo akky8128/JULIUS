@@ -154,7 +154,8 @@
 
         let currentPage = 1;
         const gamesPerPage = 10;
-        let allGames = []; // 全てのゲーム情報を保持する配列
+        
+        let allGameIds = []; // 全てのゲームIDとタイムスタンプを保持する配列
 
         const dom = {
             loadingContainer: document.getElementById('loading-container'),
@@ -238,7 +239,7 @@
             }
         });
 
-        // 1. 全てのゲームIDを取得し、ページネーションを初期化する関数
+        // 1. 全てのゲームIDとタイムスタンプを取得し、ページネーションを初期化する関数
         async function initializeGameHistory(viewedUid, currentUid) {
             const userGamesRef = ref(database, `users/${viewedUid}/games`);
             const gamesQuery = query(userGamesRef, orderByValue());
@@ -251,38 +252,36 @@
                     return;
                 }
 
-                const gamePromises = [];
+                // IDとタイムスタンプのリストを作成
+                const ids = [];
                 snapshot.forEach(childSnapshot => {
-                    const gameId = childSnapshot.key;
-                    // 各ゲームの詳細を取得するPromiseを作成
-                    gamePromises.push(get(ref(database, `games/${gameId}`)).then(gameSnap => ({
-                        id: gameId,
-                        data: gameSnap.val(),
+                    ids.push({
+                        id: childSnapshot.key,
                         timestamp: childSnapshot.val()
-                    })));
+                    });
                 });
                 
-                // データを取得してからソート
-                const fetchedGames = await Promise.all(gamePromises);
-                allGames = fetchedGames
-                    .filter(g => g.data) // データが取得できなかったものは除外
-                    .sort((a, b) => b.timestamp - a.timestamp); // 新しい順にソート
+                // 新しい順にソートしてグローバル変数に保存
+                allGameIds = ids.sort((a, b) => b.timestamp - a.timestamp);
 
                 // 最初のページを表示
                 await displayGameHistoryPage(1, currentUid);
 
-                // ページネーションボタンにイベントリスナーを設定
-                document.getElementById('prev-page-btn').addEventListener('click', () => {
+                // ページネーションボタンにイベントリスナーを設定 (一度だけ設定)
+                const prevButton = document.getElementById('prev-page-btn');
+                const nextButton = document.getElementById('next-page-btn');
+
+                prevButton.onclick = () => {
                     if (currentPage > 1) {
                         displayGameHistoryPage(currentPage - 1, currentUid);
                     }
-                });
-                document.getElementById('next-page-btn').addEventListener('click', () => {
-                    const totalPages = Math.ceil(allGames.length / gamesPerPage);
+                };
+                nextButton.onclick = () => {
+                    const totalPages = Math.ceil(allGameIds.length / gamesPerPage);
                     if (currentPage < totalPages) {
                         displayGameHistoryPage(currentPage + 1, currentUid);
                     }
-                });
+                };
 
             } catch (error) {
                 console.error("Failed to initialize game history:", error);
@@ -290,7 +289,7 @@
             }
         }
 
-        // 2. 指定されたページの対局履歴を表示する関数
+        // 2. 指定されたページの対局詳細データを取得して表示する関数
         async function displayGameHistoryPage(page, currentUid) {
             currentPage = page;
             const historyList = document.getElementById('history-list');
@@ -299,18 +298,31 @@
             historyList.innerHTML = ''; // リストをクリア
             historyLoading.classList.remove('hidden');
             historyLoading.textContent = '履歴を読み込んでいます...';
+            updatePaginationControls(); // ボタンを先に更新して無効化しておく
 
             const startIndex = (page - 1) * gamesPerPage;
             const endIndex = startIndex + gamesPerPage;
-            const gamesToShow = allGames.slice(startIndex, endIndex);
+            const gameIdsToShow = allGameIds.slice(startIndex, endIndex);
 
-            if (gamesToShow.length === 0) {
+            if (gameIdsToShow.length === 0) {
                  historyLoading.textContent = '対局はありません。';
-                 updatePaginationControls();
                  return;
             }
+            
+            // ページに必要な10件のゲーム詳細データのみを取得
+            const gamePromises = gameIdsToShow.map(gameInfo =>
+                get(ref(database, `games/${gameInfo.id}`)).then(gameSnap => ({
+                    id: gameInfo.id,
+                    data: gameSnap.val(),
+                    timestamp: gameInfo.timestamp
+                }))
+            );
+
+            const gamesToShow = await Promise.all(gamePromises);
 
             for (const game of gamesToShow) {
+                 if (!game.data) continue; // データが取得できなかった場合はスキップ
+
                 const meta = game.data.meta;
                 const players = meta.players;
                 const viewedUid = urlParams.get('uid');
@@ -363,12 +375,12 @@
             }
             
             historyLoading.classList.add('hidden');
-            updatePaginationControls();
+            updatePaginationControls(); // 表示完了後にボタンの状態を再度更新
         }
 
         // 3. ページネーションUIの状態を更新する関数
         function updatePaginationControls() {
-            const totalGames = allGames.length;
+            const totalGames = allGameIds.length;
             const totalPages = Math.ceil(totalGames / gamesPerPage);
             
             const controls = document.getElementById('pagination-controls');
