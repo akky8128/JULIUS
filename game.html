@@ -26,6 +26,21 @@
         .cell.valid-move::after { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30%; height: 30%; background-color: rgba(59, 130, 246, 0.7); border-radius: 50%; pointer-events: none; z-index: 10; }
         #modal { transition: opacity 0.3s ease, transform 0.3s ease; z-index: 50; }
         .replay-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .cell.increased::before, .cell.decreased::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0; /* 駒よりは下、マスの色よりは上 */
+            pointer-events: none;
+        }
+        .cell.increased::before {
+            background-color: rgba(22, 163, 74, 0.4); /* 半透明の緑 */
+        }
+        .cell.decreased::before {
+            background-color: rgba(220, 38, 38, 0.4); /* 半透明の赤 */
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -349,7 +364,7 @@
             render() {
                 // 初回読み込み時でなく、かつ表示手数が前回から変わっていれば音を鳴らす
                 if (!this.isInitialLoad && this.viewingTurnNumber !== this.previousViewingTurnNumber) {
-                    playSound(this.sounds.move);
+                    //playSound(this.sounds.move); 一時的にmove音は止める
                 }
                 this.previousViewingTurnNumber = this.viewingTurnNumber;
                 this.isInitialLoad = false; // 最初の描画が終わったらフラグを下ろす
@@ -370,11 +385,28 @@
                 this.dom.board.style.gridTemplateColumns = `repeat(${boardSize}, 1fr)`;
                 this.dom.board.style.gridTemplateRows = `repeat(${boardSize}, 1fr)`;
 
+                // 比較対象となる1つ前の盤面データを取得
+                const previousBoardData = this.viewingTurnNumber > 0
+                    ? this.gameData.moves[this.viewingTurnNumber - 1].board
+                    : null;
+
                 for (let r = 0; r < boardSize; r++) {
                     for (let c = 0; c < boardSize; c++) {
                         const cell = document.createElement('div');
                         cell.dataset.r = r; cell.dataset.c = c;
                         cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+
+                        // 前のターンと比較して駒の数を比較し、クラスを付与
+                        const currentTurnCommittedBoard = this.gameData.moves[this.viewingTurnNumber].board;
+                        if (previousBoardData) {
+                            const currentStack = Array.isArray(currentTurnCommittedBoard[r]?.[c]) ? currentTurnCommittedBoard[r][c] : [];
+                            const previousStack = Array.isArray(previousBoardData[r]?.[c]) ? previousBoardData[r][c] : [];
+                            if (currentStack.length > previousStack.length) {
+                                cell.classList.add('increased');
+                            } else if (currentStack.length < previousStack.length) {
+                                cell.classList.add('decreased');
+                            }
+                        }
                         
                         const stack = Array.isArray(boardData[r]?.[c]) ? boardData[r][c] : [];
                         stack.forEach((pieceColor, i) => {
