@@ -59,7 +59,7 @@
         loadHeader();
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, get, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, get, update, serverTimestamp, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         
         const firebaseConfig = {
@@ -177,6 +177,9 @@
                 // ユーザーデータの更新内容（対戦履歴の追加）
                 const creatorUid = white === 0 ? black : white; // 既に参加しているプレイヤーのUID
                 const joinerUid = user.uid; // 新しく参加するプレイヤーのUID
+                // 両プレイヤーの対戦数を1増やす
+                updates[`/users/${creatorUid}/profile/gamesPlayed`] = increment(1);
+                updates[`/users/${joinerUid}/profile/gamesPlayed`] = increment(1);
                 updates[`/users/${creatorUid}/games/${gameId}`] = now;
                 updates[`/users/${joinerUid}/games/${gameId}`] = now;
 

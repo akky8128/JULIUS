@@ -46,10 +46,16 @@
 
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex space-x-4">
+                        <div>
+                            <span id="games-played-count" class="font-bold text-lg">0</span>
+                            <span class="text-gray-600">局</span>
+                        </div>
+
                         <div id="following-btn" class="cursor-pointer hover:opacity-75">
                             <span id="following-count" class="font-bold text-lg">0</span>
                             <span class="text-gray-600">フォロー中</span>
                         </div>
+
                         <div id="followers-btn" class="cursor-pointer hover:opacity-75">
                             <span id="followers-count" class="font-bold text-lg">0</span>
                             <span class="text-gray-600">フォロワー</span>
@@ -101,6 +107,16 @@
                 <p id="history-loading" class="text-gray-500">履歴を読み込んでいます...</p>
             </div>
 
+            <div id="pagination-controls" class="mt-6 flex justify-center items-center space-x-4 hidden">
+                    <button id="prev-page-btn" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 disabled:opacity-50" disabled>
+                        <i class="fas fa-arrow-left"></i> 前へ
+                    </button>
+                    <span id="page-info" class="font-semibold text-gray-700"></span>
+                    <button id="next-page-btn" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 disabled:opacity-50" disabled>
+                        次へ <i class="fas fa-arrow-right"></i>
+                    </button>
+            </div>
+
         </div>
 
         <div id="follow-list-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -140,6 +156,10 @@
         const database = getDatabase(window.firebaseApp);
         const provider = new GoogleAuthProvider();
 
+        let currentPage = 1;
+        const gamesPerPage = 10;
+        let allGames = []; // 全てのゲーム情報を保持する配列
+
         const dom = {
             loadingContainer: document.getElementById('loading-container'),
             loginContainer: document.getElementById('login-container'),
@@ -170,6 +190,7 @@
         function renderProfile(profileData, isOwnProfile) {
             dom.nicknameDisplay.textContent = profileData?.nickname || 'ニックネーム未設定';
             dom.bioDisplay.textContent = profileData?.bio || '自己紹介がありません。';
+            document.getElementById('games-played-count').textContent = profileData?.gamesPlayed || 0;
             document.getElementById('following-count').textContent = profileData?.followingCount || 0;
             document.getElementById('followers-count').textContent = profileData?.followersCount || 0;
             dom.loadingContainer.classList.add('hidden');
@@ -214,24 +235,21 @@
             if (viewedUid && user) {
                 // ログインしていて、プロフィールが表示されている場合
                 historyContainer.classList.remove('hidden'); // 表示する
-                displayGameHistory(viewedUid, user.uid);
+                initializeGameHistory(viewedUid, user.uid); // 新しい初期化関数を呼び出す
             } else {
                 // 未ログイン、またはプロフィールが表示されていない場合
                 historyContainer.classList.add('hidden'); // 非表示にする
             }
         });
 
-        async function displayGameHistory(viewedUid, currentUid) {
-            const historyList = document.getElementById('history-list');
-            const historyLoading = document.getElementById('history-loading');
-
+        // 1. 全てのゲームIDを取得し、ページネーションを初期化する関数
+        async function initializeGameHistory(viewedUid, currentUid) {
             const userGamesRef = ref(database, `users/${viewedUid}/games`);
-            // タイムスタンプで並び替え、最新20件を取得
-            const gamesQuery = query(userGamesRef, orderByValue(), limitToLast(20));
-
+            const gamesQuery = query(userGamesRef, orderByValue());
+            const historyLoading = document.getElementById('history-loading');
+            
             try {
                 const snapshot = await get(gamesQuery);
-
                 if (!snapshot.exists()) {
                     historyLoading.textContent = '対局はありません。';
                     return;
@@ -240,90 +258,133 @@
                 const gamePromises = [];
                 snapshot.forEach(childSnapshot => {
                     const gameId = childSnapshot.key;
-                    const timestamp = childSnapshot.val();
                     // 各ゲームの詳細を取得するPromiseを作成
                     gamePromises.push(get(ref(database, `games/${gameId}`)).then(gameSnap => ({
                         id: gameId,
                         data: gameSnap.val(),
-                        timestamp: timestamp
+                        timestamp: childSnapshot.val()
                     })));
                 });
+                
+                // データを取得してからソート
+                const fetchedGames = await Promise.all(gamePromises);
+                allGames = fetchedGames
+                    .filter(g => g.data) // データが取得できなかったものは除外
+                    .sort((a, b) => b.timestamp - a.timestamp); // 新しい順にソート
 
-                // 全てのゲーム詳細の取得を待つ
-                const games = await Promise.all(gamePromises);
-                // タイムスタンプの降順（新しい順）にソート
-                games.sort((a, b) => b.timestamp - a.timestamp);
+                // 最初のページを表示
+                await displayGameHistoryPage(1, currentUid);
 
-                historyLoading.classList.add('hidden');
-
-                for (const game of games) {
-                    if (!game.data) continue;
-
-                    const meta = game.data.meta;
-                    const players = meta.players;
-
-                    const isParticipant = currentUid && (players.white === currentUid || players.black === currentUid);
-                    const isInProgress = meta.status === 'in_progress';
-
-                    let linkUrl = `game.html?id=${game.id}&mode=spectate`;
-                    let linkText = '対局を見る';
-                    let resultText = '不明';
-                    let resultColor = 'text-gray-500';
-
-                    if (isParticipant && isInProgress) {
-                        linkUrl = `game.html?id=${game.id}&mode=play`;
-                        linkText = '対局に戻る';
-                        resultText = '対戦中'; // テキストを統一
-                        resultColor = 'text-blue-500'; // 色を統一
+                // ページネーションボタンにイベントリスナーを設定
+                document.getElementById('prev-page-btn').addEventListener('click', () => {
+                    if (currentPage > 1) {
+                        displayGameHistoryPage(currentPage - 1, currentUid);
                     }
-
-                    const opponentUid = players.white === viewedUid ? players.black : players.white;
-
-                    // 自分の結果を判定
-                    if (meta.winner) {
-                        if ((meta.winner === 'white' && players.white === viewedUid) || (meta.winner === 'black' && players.black === viewedUid)) {
-                            resultText = '勝利';
-                            resultColor = 'text-green-600 font-bold';
-                        } else {
-                            resultText = '敗北';
-                            resultColor = 'text-red-600 font-bold';
-                        }
-                    } else if (meta.status === 'in_progress') {
-                        resultText = '対戦中';
-                        resultColor = 'text-blue-500';
-                    } else {
-                        resultText = '引き分け等';
+                });
+                document.getElementById('next-page-btn').addEventListener('click', () => {
+                    const totalPages = Math.ceil(allGames.length / gamesPerPage);
+                    if (currentPage < totalPages) {
+                        displayGameHistoryPage(currentPage + 1, currentUid);
                     }
-
-                    // 日付をフォーマット
-                    const date = new Date(game.timestamp).toLocaleString('ja-JP');
-
-                    // 対戦相手の情報を取得
-                    const opponentProfile = opponentUid ? await fetchUserProfile(opponentUid) : { nickname: 'オフライン' };
-                    // オフライン対戦でない場合のみリンクを生成
-                    const opponentName = opponentUid !== 'offline' && opponentUid
-                        ? `<a href="profile.html?uid=${opponentUid}" class="font-semibold text-blue-600 hover:underline">${opponentProfile?.nickname || 'ゲスト'}</a>`
-                        : `<span class="font-semibold">${opponentProfile?.nickname || 'オフライン'}</span>`;
-
-                    const listItem = document.createElement('li');
-                    listItem.className = 'p-3 bg-gray-50 rounded-md border flex justify-between items-center';
-                    listItem.innerHTML = `
-                        <div>
-                            <p class="text-sm text-gray-500">${date}</p>
-                            <p>vs ${opponentName}</p>
-                        </div>
-                        <div class="text-right">
-                            <p class="${resultColor}">${resultText}</p>
-                            <a href="${linkUrl}" class="text-sm text-blue-600 hover:underline">${linkText}</a>
-                        </div>
-                    `;
-                    historyList.appendChild(listItem);
-                }
+                });
 
             } catch (error) {
-                console.error("Failed to load game history:", error);
+                console.error("Failed to initialize game history:", error);
                 historyLoading.textContent = '履歴の読み込みに失敗しました。';
             }
+        }
+
+        // 2. 指定されたページの対局履歴を表示する関数
+        async function displayGameHistoryPage(page, currentUid) {
+            currentPage = page;
+            const historyList = document.getElementById('history-list');
+            const historyLoading = document.getElementById('history-loading');
+            
+            historyList.innerHTML = ''; // リストをクリア
+            historyLoading.classList.remove('hidden');
+            historyLoading.textContent = '履歴を読み込んでいます...';
+
+            const startIndex = (page - 1) * gamesPerPage;
+            const endIndex = startIndex + gamesPerPage;
+            const gamesToShow = allGames.slice(startIndex, endIndex);
+
+            if (gamesToShow.length === 0) {
+                 historyLoading.textContent = '対局はありません。';
+                 updatePaginationControls();
+                 return;
+            }
+
+            for (const game of gamesToShow) {
+                const meta = game.data.meta;
+                const players = meta.players;
+                const viewedUid = urlParams.get('uid');
+
+                const isParticipant = currentUid && (players.white === currentUid || players.black === currentUid);
+                const isInProgress = meta.status === 'in_progress';
+
+                let linkUrl = `game.html?id=${game.id}&mode=spectate`;
+                let linkText = '対局を見る';
+                let resultText = '不明';
+                let resultColor = 'text-gray-500';
+
+                if (isParticipant && isInProgress) {
+                    linkUrl = `game.html?id=${game.id}&mode=play`;
+                    linkText = '対局に戻る';
+                }
+
+                if (meta.winner) {
+                    if ((meta.winner === 'white' && players.white === viewedUid) || (meta.winner === 'black' && players.black === viewedUid)) {
+                        resultText = '勝利'; resultColor = 'text-green-600 font-bold';
+                    } else {
+                        resultText = '敗北'; resultColor = 'text-red-600 font-bold';
+                    }
+                } else if (meta.status === 'in_progress') {
+                    resultText = '対戦中'; resultColor = 'text-blue-500';
+                } else {
+                    resultText = '引き分け等';
+                }
+
+                const date = new Date(game.timestamp).toLocaleString('ja-JP');
+                const opponentUid = players.white === viewedUid ? players.black : players.white;
+                const opponentProfile = opponentUid ? await fetchUserProfile(opponentUid) : { nickname: 'オフライン' };
+                const opponentName = opponentUid !== 'offline' && opponentUid
+                    ? `<a href="profile.html?uid=${opponentUid}" class="font-semibold text-blue-600 hover:underline">${opponentProfile?.nickname || 'ゲスト'}</a>`
+                    : `<span class="font-semibold">${opponentProfile?.nickname || 'オフライン'}</span>`;
+
+                const listItem = document.createElement('li');
+                listItem.className = 'p-3 bg-gray-50 rounded-md border flex justify-between items-center';
+                listItem.innerHTML = `
+                    <div>
+                        <p class="text-sm text-gray-500">${date}</p>
+                        <p>vs ${opponentName}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="${resultColor}">${resultText}</p>
+                        <a href="${linkUrl}" class="text-sm text-blue-600 hover:underline">${linkText}</a>
+                    </div>
+                `;
+                historyList.appendChild(listItem);
+            }
+            
+            historyLoading.classList.add('hidden');
+            updatePaginationControls();
+        }
+
+        // 3. ページネーションUIの状態を更新する関数
+        function updatePaginationControls() {
+            const totalGames = allGames.length;
+            const totalPages = Math.ceil(totalGames / gamesPerPage);
+            
+            const controls = document.getElementById('pagination-controls');
+            if (totalPages <= 1) {
+                controls.classList.add('hidden');
+                return;
+            }
+            controls.classList.remove('hidden');
+
+            document.getElementById('page-info').textContent = `ページ ${currentPage} / ${totalPages}`;
+            document.getElementById('prev-page-btn').disabled = currentPage === 1;
+            document.getElementById('next-page-btn').disabled = currentPage === totalPages;
         }
 
         async function handleFollowButton(viewedUid, currentUser) {
@@ -455,6 +516,7 @@
                     nickname: dom.nicknameInput.value.trim(),
                     bio: dom.bioInput.value.trim(),
                     // 存在しない場合のみ、カウンターを0で初期化
+                    gamesPlayed: currentProfile.gamesPlayed || 0,
                     followingCount: currentProfile.followingCount || 0,
                     followersCount: currentProfile.followersCount || 0
                 };

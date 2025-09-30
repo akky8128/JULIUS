@@ -109,7 +109,7 @@
         loadHeader();
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, set, serverTimestamp, update } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, set, serverTimestamp, update, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         // signInAnonymouslyを削除し、onAuthStateChangedを追加
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
@@ -246,6 +246,8 @@
                 updates[`/games/${gameId}`] = gameData;
                 // users/{uid}/games/{gameId} にタイムスタンプをセット
                 updates[`/users/${uid}/games/${gameId}`] = now;
+                // users/{uid}/profile/gamesPlayed を1増やす
+                updates[`/users/${uid}/profile/gamesPlayed`] = increment(1);
 
                 // 複数のパスに同時に書き込む
                 await update(ref(database), updates);
