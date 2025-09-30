@@ -330,6 +330,12 @@
             loadLatestState() {
                 if (!this.gameData) return;
 
+                // ゲームが既に終了している場合、UIの状態をリセットせずに終了する
+                if (this.gameData.meta.status === 'completed') {
+                    this.render(); // 盤面の再描画のみ行う
+                    return;
+                }
+
                 if (this.gameData.moves && !Array.isArray(this.gameData.moves)) {
                     this.gameData.moves = Object.values(this.gameData.moves);
                 }
