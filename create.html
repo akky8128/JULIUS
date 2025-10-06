@@ -110,8 +110,8 @@
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getDatabase, ref, set, serverTimestamp, update, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-        // signInAnonymouslyを削除し、onAuthStateChangedを追加
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
@@ -154,6 +154,9 @@
             }
         });
 
+        const functions = getFunctions(app, 'asia-southeast1');
+        const createGame = httpsCallable(functions, 'createGame'); // 'createGame'という名前の関数を呼び出す準備
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -171,10 +174,14 @@
             const settings = Object.fromEntries(formData.entries());
             
             try {
+                const result = await createGame(settings);
+                const gameId = result.data.gameId;
+
+                // 成功したら、返ってきたgameIdを使って画面遷移
                 if (settings.gameType === 'offline') {
-                    await createOfflineGame(settings, uid);
+                    window.location.href = `game.html?id=${gameId}&mode=play`;
                 } else {
-                    await createOnlineGame(settings, uid);
+                    window.location.href = `waiting.html?id=${gameId}`;
                 }
             } catch (error) {
                 console.error("Game creation failed:", error);
@@ -198,6 +205,7 @@
             });
         });
 
+        /*
         async function createOfflineGame(settings, uid) {
             const gameId = crypto.randomUUID();
             const now = serverTimestamp();
@@ -322,6 +330,7 @@
                 alert("オンライン対局の作成に失敗しました。");
             }
         }
+        */
     </script>
 </body>
 </html>

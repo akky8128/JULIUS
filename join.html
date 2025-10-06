@@ -59,9 +59,10 @@
         loadHeader();
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, get, update, serverTimestamp, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        
+        // ▼▼▼【変更点】Cloud Functions関連のモジュールをインポート ▼▼▼
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
             authDomain: "julius-online-a5984.firebaseapp.com",
@@ -73,14 +74,15 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        const database = getDatabase(app);
         const auth = getAuth(app);
+        // ▼▼▼【変更点】Cloud Functionsの準備 ▼▼▼
+        const functions = getFunctions(app, 'asia-southeast1');
+        const joinGame = httpsCallable(functions, 'joinGame');
 
         const form = document.getElementById('join-form');
         const errorMessage = document.getElementById('error-message');
         const gameIdInput = document.getElementById('game-id-input');
 
-        // URLパラメータから対局IDを取得して入力欄に自動入力する
         const urlParams = new URLSearchParams(window.location.search);
         const gameIdFromInvite = urlParams.get('id');
         if (gameIdFromInvite) {
@@ -91,11 +93,8 @@
         const buttonText = document.getElementById('button-text');
         const buttonSpinner = document.getElementById('button-spinner');
 
-        let currentUser = null;
-
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                currentUser = user;
                 joinButton.disabled = false;
             } else {
                 alert("ログインが必要です。トップページに戻ります。");
@@ -103,95 +102,35 @@
             }
         });
 
+        // ▼▼▼【変更点】フォーム送信時の処理を全面的に変更 ▼▼▼
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             errorMessage.textContent = '';
 
-            if (!currentUser) {
-                errorMessage.textContent = 'ログイン認証が完了していません。';
+            const gameId = gameIdInput.value.trim();
+            if (!gameId) {
+                errorMessage.textContent = '対局IDを入力してください。';
                 return;
             }
-            
+
             joinButton.disabled = true;
             buttonText.textContent = '参加中...';
             buttonSpinner.classList.remove('hidden');
 
-            const reEnableButton = () => {
-                joinButton.disabled = false;
-                buttonText.textContent = '対局に参加する';
-                buttonSpinner.classList.add('hidden');
-            };
-
-            const gameId = gameIdInput.value.trim();
-            if (!gameId) {
-                errorMessage.textContent = '対局IDを入力してください。';
-                reEnableButton();
-                return;
-            }
-
             try {
-                const user = currentUser; // currentUser を使用
-                const gameRef = ref(database, 'games/' + gameId);
-                const snapshot = await get(gameRef);
-
-                if (!snapshot.exists()) {
-                    errorMessage.textContent = '指定された対局が見つかりません。';
-                    reEnableButton();
-                    return;
-                }
-                
-                const gameData = snapshot.val();
-                
-                if (gameData.meta.status !== 'waiting') {
-                    errorMessage.textContent = 'この対局は既に対戦中か、終了しています。';
-                    reEnableButton();
-                    return;
-                }
-                
-                const { white, black } = gameData.meta.players;
-                if (white !== 0 && black !== 0) {
-                    errorMessage.textContent = 'この対局は満員です。';
-                    reEnableButton();
-                    return;
-                }
-
-                if (user.uid === white || user.uid === black) {
-                    errorMessage.textContent = 'あなたは既に参加しています。';
-                    reEnableButton();
-                    return;
-                }
-                
-                const updates = {};
-                const now = serverTimestamp();
-                const playerColor = white === 0 ? 'white' : 'black';
-                const timeLimit = gameData.meta.gameSettings.timeControl.timeLimit;
-                
-                // 対局データの更新内容
-                updates[`/games/${gameId}/meta/players/${playerColor}`] = user.uid;
-                updates[`/games/${gameId}/meta/status`] = 'in_progress';
-                updates[`/games/${gameId}/meta/updatedAt`] = now;
-                updates[`/games/${gameId}/moves/0/timers/white`] = timeLimit;
-                updates[`/games/${gameId}/moves/0/timers/black`] = timeLimit;
-                updates[`/games/${gameId}/moves/0/timestamp`] = now;
-
-                // ユーザーデータの更新内容（対戦履歴の追加）
-                const creatorUid = white === 0 ? black : white; // 既に参加しているプレイヤーのUID
-                const joinerUid = user.uid; // 新しく参加するプレイヤーのUID
-                // 両プレイヤーの対戦数を1増やす
-                updates[`/users/${creatorUid}/profile/gamesPlayed`] = increment(1);
-                updates[`/users/${joinerUid}/profile/gamesPlayed`] = increment(1);
-                updates[`/users/${creatorUid}/games/${gameId}`] = now;
-                updates[`/users/${joinerUid}/games/${gameId}`] = now;
-
-                // 複数のパスに同時に書き込み
-                await update(ref(database), updates);
-
+                // Cloud Functionを呼び出す
+                await joinGame({ gameId: gameId });
+                // 成功したらゲーム画面へ
                 window.location.href = `game.html?id=${gameId}&mode=play`;
 
             } catch (error) {
                 console.error("Failed to join game:", error);
-                errorMessage.textContent = '対局への参加に失敗しました。';
-                reEnableButton();
+                // Firebaseからのエラーメッセージをユーザーに分かりやすく表示
+                errorMessage.textContent = error.message || '対局への参加に失敗しました。';
+
+                joinButton.disabled = false;
+                buttonText.textContent = '対局に参加する';
+                buttonSpinner.classList.add('hidden');
             }
         });
     </script>

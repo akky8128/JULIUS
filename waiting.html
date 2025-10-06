@@ -70,11 +70,9 @@
         import { loadHeader } from './js/header.js';
         loadHeader();
 
-        // ▼▼▼ Firebaseのインポート文を修正 ▼▼▼
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, onValue, off, onDisconnect, get, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, onValue, get, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        // ▲▲▲ ここまで ▲▲▲
 
         const firebaseConfig = {
             apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
@@ -85,7 +83,7 @@
             messagingSenderId: "688172535832",
             appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
         };
-        
+
         let app;
         if (!window.firebaseApp) { app = initializeApp(firebaseConfig); window.firebaseApp = app; }
         else { app = window.firebaseApp; }
@@ -96,7 +94,7 @@
         const gameIdDisplay = document.getElementById('game-id-display');
         const copyButton = document.getElementById('copy-button');
         const copyFeedback = document.getElementById('copy-feedback');
-        
+
         const matchFoundSound = new Audio('sounds/match-found.mp3');
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -106,15 +104,10 @@
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     if (!gameId) {
-                        gameIdDisplay.textContent = '対局IDが見つかりません。';
-                        copyButton.disabled = true;
+                        document.querySelector('main div').innerHTML = '<h2 class="text-3xl font-bold text-red-500">エラー: 対局IDが見つかりません。</h2>';
                         return;
                     }
-                    
-                    const gameStatusRef = ref(database, `games/${gameId}/meta/status`);
-                    // 接続が切れたら対局を破棄する予約
-                    onDisconnect(gameStatusRef).set('abandoned');
-                    
+
                     gameIdDisplay.textContent = gameId;
 
                     copyButton.addEventListener('click', () => {
@@ -124,24 +117,31 @@
                         });
                     });
 
-                    const unsubscribe = onValue(gameStatusRef, (snapshot) => {
-                        if (snapshot.val() === 'in_progress') {
-                            unsubscribe();
-                            const redirectToGame = () => {
-                                // 画面遷移する前に、接続切れの予約をキャンセルする
-                                onDisconnect(gameStatusRef).cancel();
-                                window.location.href = `game.html?id=${gameId}&mode=play`;
-                            };
+                    // ▼▼▼【変更点】statusだけでなく、対局データ全体を監視する ▼▼▼
+                    const gameRef = ref(database, `games/${gameId}`);
 
-                            matchFoundSound.play().then(() => {
-                                matchFoundSound.addEventListener('ended', redirectToGame);
-                            }).catch(error => {
-                                redirectToGame();
-                            });
+                    const unsubscribe = onValue(gameRef, (snapshot) => {
+                        // --- データが存在する場合 ---
+                        if (snapshot.exists()) {
+                            const gameData = snapshot.val();
+                            if (gameData.meta.status === 'in_progress') {
+                                unsubscribe(); // 監視を停止
+                                const redirectToGame = () => {
+                                    window.location.href = `game.html?id=${gameId}&mode=play`;
+                                };
+
+                                matchFoundSound.play().catch(e => redirectToGame()).then(() => {
+                                setTimeout(redirectToGame, 500); // 音が鳴り終わるのを少し待つ
+                                });
+                            }
+                        // --- データが存在しない（削除された）場合 ---
+                        } else {
+                            unsubscribe(); // 監視を停止
+                            alert("対戦相手が見つからなかったため、この対局は期限切れとなりました。");
+                            window.location.href = 'index.html';
                         }
                     });
-                    
-                    // ▼▼▼ 招待モーダルの設定関数を呼び出すコードを追加 ▼▼▼
+
                     setupInviteModal(user);
 
                 } else {
@@ -150,9 +150,10 @@
                 }
             });
         }
-            
+
         init();
 
+        // 招待モーダルの処理（変更なし）
         function setupInviteModal(currentUser) {
             const inviteModal = document.getElementById('invite-modal');
             
