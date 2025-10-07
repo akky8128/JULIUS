@@ -8,18 +8,19 @@
  */
 
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
-const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {setGlobalOptions} = require("firebase-functions/v2");
+// ▼▼▼【変更点1】スケジュール用の関数をv2からインポート ▼▼▼
+const {onSchedule} = require("firebase-functions/v2/scheduler");
 
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 
 admin.initializeApp();
 
-setGlobalOptions({maxInstances: 10});
+setGlobalOptions({maxInstances: 10, region: "asia-southeast1"});
 
 // --- (1) 対局作成関数 ---
-exports.createGame = onCall({region: "asia-southeast1"}, async (request) => {
+exports.createGame = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication is required.");
   }
@@ -50,7 +51,6 @@ exports.createGame = onCall({region: "asia-southeast1"}, async (request) => {
     status = "in_progress";
   } else { // online
     const playerColor = settings.playerColor;
-    // ▼▼▼【変更点】ランダムの場合、手番を決めずに作成者として記録 ▼▼▼
     if (playerColor === "random") {
       players = {creator: uid, white: 0, black: 0};
     } else {
@@ -85,7 +85,6 @@ exports.createGame = onCall({region: "asia-southeast1"}, async (request) => {
       },
       createdAt: now,
       updatedAt: now,
-      // ▼▼▼【変更点】待機中のゲームにのみ有効期限を設定 ▼▼▼
       expiresAt: status === "waiting" ? expiresAt : null,
     },
     moves: [{
@@ -114,7 +113,7 @@ exports.createGame = onCall({region: "asia-southeast1"}, async (request) => {
 
 
 // --- (2) 対局参加関数 ---
-exports.joinGame = onCall({region: "asia-southeast1"}, async (request) => {
+exports.joinGame = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication is required.");
   }
@@ -206,35 +205,66 @@ exports.joinGame = onCall({region: "asia-southeast1"}, async (request) => {
 });
 
 
-// --- (3) ゴースト対局クリーンアップ関数 ---
-exports.cleanupGhostGames = onSchedule({
-  schedule: "every 5 minutes",
-  region: "asia-southeast1",
-},
-async (event) => {
-  const db = admin.database();
+// ▼▼▼【変更点2】古い書き方をv2のonScheduleに全面的に書き換え ▼▼▼
+const db = admin.database();
+
+// シンガポールの午前3時(日本時間午前4時)にゴースト対局をクリーンアップ
+exports.cleanupGhostGames = onSchedule("every day 03:00", async (event) => {
   const gamesRef = db.ref("/games");
   const now = Date.now();
-
-  const query = gamesRef.orderByChild("meta/status").equalTo("waiting");
-  const snapshot = await query.once("value");
-
-  if (!snapshot.exists()) {
-    console.log("No ghost games to clean up.");
-    return null;
-  }
+  const fiveMinutesAgo = now - 5 * 60 * 1000; // 5分前のタイムスタンプ (ミリ秒)
 
   const updates = {};
-  snapshot.forEach((childSnapshot) => {
-    const game = childSnapshot.val();
-    if (game.meta.expiresAt && game.meta.expiresAt < now) {
-      console.log(`Deleting ghost game: ${childSnapshot.key}`);
-      updates[childSnapshot.key] = null;
-    }
-  });
 
+  // --- 1. "abandoned" (破棄された) 対局をクリーンアップ ---
+  const abandonedPromise =
+    gamesRef.orderByChild("meta/status").equalTo("abandoned").once("value");
+
+  // --- 2. "waiting" (待機中) のまま5分以上経過した対局をクリーンアップ ---
+  const waitingPromise =
+    gamesRef.orderByChild("meta/status").equalTo("waiting").once("value");
+
+  // 2つの非同期処理を並行して実行
+  const [abandonedSnapshot, waitingSnapshot] =
+    await Promise.all([abandonedPromise, waitingPromise]);
+
+  // "abandoned" の対局を削除リストに追加
+  if (abandonedSnapshot.exists()) {
+    abandonedSnapshot.forEach((gameSnap) => {
+      updates[gameSnap.key] = null; // nullをセットするとデータが削除される
+    });
+    console.log(
+        `Found ${Object.keys(updates).length} abandoned games to delete.`,
+    );
+  }
+
+  // "waiting" の対局をチェックして、条件に合えば削除リストに追加
+  if (waitingSnapshot.exists()) {
+    waitingSnapshot.forEach((gameSnap) => {
+      const gameData = gameSnap.val();
+      // meta.createdAt が存在し、かつ5分以上経過しているかチェック
+      if (
+        gameData.meta &&
+        gameData.meta.createdAt &&
+        gameData.meta.createdAt < fiveMinutesAgo
+      ) {
+        updates[gameSnap.key] = null;
+        console.log(
+            `Game ${gameSnap.key} is older than 5 minutes. 
+            Marking for deletion.`,
+        );
+      }
+    });
+  }
+
+  // 削除対象が1つでもあれば、一括で削除処理を実行
   if (Object.keys(updates).length > 0) {
     await gamesRef.update(updates);
+    console.log(
+        `Successfully deleted ${Object.keys(updates).length} ghost games.`,
+    );
+  } else {
+    console.log("No ghost games to delete.");
   }
 
   return null;
