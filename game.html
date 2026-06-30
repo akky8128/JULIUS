@@ -139,23 +139,9 @@
         import { loadHeader } from './js/header.js';
         loadHeader();
 
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, get, set, onValue, off, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-        import { getAuth, setPersistence, browserSessionPersistence, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
-            authDomain: "julius-online-a5984.firebaseapp.com",
-            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "julius-online-a5984",
-            storageBucket: "julius-online-a5984.appspot.com",
-            messagingSenderId: "688172535832",
-            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const database = getDatabase(app);
-        const auth = getAuth(app);
+        import { auth, database } from './js/firebase.js';
+        import { ref, get, set, onValue, off, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
         class GameManager {
             constructor() {
@@ -230,18 +216,14 @@
                 
                 onAuthStateChanged(auth, (user) => {
                     if (user || this.mode === 'spectate') {
-                        // ログイン済み、または観戦モードの場合はゲームデータを読み込む
-                        console.log("[Auth] User is signed in or in spectate mode.");
-                        this.loadGameData(user); // userがnullでも観戦モードなら動作するようにloadGameData側でハンドリング
+                        this.loadGameData(user);
                     } else {
-                        // プレイモードで未ログインの場合
                         this.dom.loadingContainer.textContent = 'エラー: ログインが必要です。トップページに戻ってログインしてください。';
                     }
                 });
             }
 
             loadGameData(user) {
-                console.log("[4] loadGameData called with UID:", user.uid);
                 this.dbRef = ref(database, 'games/' + this.gameId);
 
                 const offsetRef = ref(database, '.info/serverTimeOffset');
@@ -252,16 +234,10 @@
                 onValue(this.dbRef, (snapshot) => {
                     if (snapshot.exists()) {
                         const gameData = snapshot.val();
-                        
-                        // 参加者検証の箇所を修正
-                        console.log("--- 参加者検証 ---");
-                        // userが存在する場合のみUIDをチェック
                         const uid = user ? user.uid : null;
-                        console.log("A. 検証に使用するユーザーID:", uid);
-                        console.log("B. DBから取得した対局のプレイヤー:", gameData.meta.players);
 
                         if (this.mode === 'play') {
-                            if (!uid) { // そもそもログインしていない
+                            if (!uid) {
                                 this.dom.loadingContainer.textContent = 'エラー: この対局をプレイするにはログインが必要です。';
                                 this.dom.container.classList.add('hidden');
                                 if (this.dbRef) off(this.dbRef);
@@ -269,10 +245,6 @@
                             }
                             const players = gameData.meta.players;
                             const isParticipant = uid === players.white || uid === players.black;
-                            
-                            console.log(`C. 参加者かどうかの判定結果: ${isParticipant}`);
-                            console.log("-------------------");
-                            
                             if (!isParticipant) {
                                 this.dom.loadingContainer.textContent = 'エラー: この対局の参加者ではありません。観戦モードでアクセスしてください。';
                                 this.dom.container.classList.add('hidden');

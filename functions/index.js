@@ -1,26 +1,17 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * const {onCall} = require("firebase-functions/v2/https");
- * const {onDocumentWritten} = require("firebase-functions/v2/firestore");
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { setGlobalOptions } from "firebase-functions/v2";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import admin from "firebase-admin";
+import crypto from "crypto";
 
-const {onCall, HttpsError} = require("firebase-functions/v2/https");
-const {setGlobalOptions} = require("firebase-functions/v2");
-// ▼▼▼【変更点1】スケジュール用の関数をv2からインポート ▼▼▼
-const {onSchedule} = require("firebase-functions/v2/scheduler");
+admin.initializeApp({
+  databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
+});
 
-const admin = require("firebase-admin");
-const crypto = require("crypto");
-
-admin.initializeApp();
-
-setGlobalOptions({maxInstances: 10, region: "asia-southeast1"});
+setGlobalOptions({ maxInstances: 10, region: "asia-southeast1" });
 
 // --- (1) 対局作成関数 ---
-exports.createGame = onCall(async (request) => {
+export const createGame = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication is required.");
   }
@@ -28,16 +19,12 @@ exports.createGame = onCall(async (request) => {
   const uid = request.auth.uid;
   const settings = request.data;
   const now = admin.database.ServerValue.TIMESTAMP;
-  const expiresAt = Date.now() + 5 * 60 * 1000; // 5分後に有効期限を設定
+  const expiresAt = Date.now() + 5 * 60 * 1000;
   const gameId = crypto.randomUUID();
 
-  // --- 設定値のバリデーション ---
   const boardSize = parseInt(settings.boardSize, 10);
   if (boardSize < 3 || boardSize > 8) {
-    throw new HttpsError(
-        "invalid-argument",
-        "Board size must be between 3 and 8.",
-    );
+    throw new HttpsError("invalid-argument", "Board size must be between 3 and 8.");
   }
   const timeLimit = parseInt(settings.timeLimit, 10) * 60;
   const delay = parseInt(settings.delay, 10);
@@ -47,12 +34,12 @@ exports.createGame = onCall(async (request) => {
   let status;
 
   if (settings.gameType === "offline") {
-    players = {white: uid, black: uid};
+    players = { white: uid, black: uid };
     status = "in_progress";
-  } else { // online
+  } else {
     const playerColor = settings.playerColor;
     if (playerColor === "random") {
-      players = {creator: uid, white: 0, black: 0};
+      players = { creator: uid, white: 0, black: 0 };
     } else {
       players = {
         creator: uid,
@@ -63,25 +50,21 @@ exports.createGame = onCall(async (request) => {
     status = "waiting";
   }
 
-  const initialBoard = Array.from({length: boardSize}, () =>
-    Array.from({length: boardSize}, () => 0),
+  const initialBoard = Array.from({ length: boardSize }, () =>
+    Array.from({ length: boardSize }, () => 0),
   );
 
   const gameData = {
-    gameId: gameId,
+    gameId,
     meta: {
-      status: status,
-      players: players,
+      status,
+      players,
       winner: null,
       winReason: null,
       gameSettings: {
         boardSize,
-        maxSummons: Math.floor(boardSize*boardSize/2),
-        timeControl: {
-          enabled: timeControlEnabled,
-          timeLimit,
-          delay,
-        },
+        maxSummons: Math.floor(boardSize * boardSize / 2),
+        timeControl: { enabled: timeControlEnabled, timeLimit, delay },
       },
       createdAt: now,
       updatedAt: now,
@@ -91,8 +74,8 @@ exports.createGame = onCall(async (request) => {
       turnNumber: 0,
       currentPlayer: "white",
       board: initialBoard,
-      summonCounts: {white: 0, black: 0},
-      timers: {white: timeLimit, black: timeLimit},
+      summonCounts: { white: 0, black: 0 },
+      timers: { white: timeLimit, black: timeLimit },
       timestamp: now,
     }],
   };
@@ -100,20 +83,19 @@ exports.createGame = onCall(async (request) => {
   const db = admin.database();
   await db.ref(`/games/${gameId}`).set(gameData);
 
-  // オフラインゲームの場合のみ、この時点で作った人の対戦履歴を更新
   if (settings.gameType === "offline") {
-    const userGamesRef = db.ref(`/users/${uid}/games/${gameId}`);
-    await userGamesRef.set(now);
-    const gamesPlayedRef = db.ref(`/users/${uid}/profile/gamesPlayed`);
-    await gamesPlayedRef.set(admin.database.ServerValue.increment(1));
+    const updates = {};
+    updates[`/users/${uid}/games/${gameId}`] = now;
+    updates[`/users/${uid}/profile/gamesPlayed`] = admin.database.ServerValue.increment(1);
+    await db.ref().update(updates);
   }
 
-  return {gameId: gameId};
+  return { gameId };
 });
 
 
 // --- (2) 対局参加関数 ---
-exports.joinGame = onCall(async (request) => {
+export const joinGame = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication is required.");
   }
@@ -134,42 +116,26 @@ exports.joinGame = onCall(async (request) => {
   }
 
   const gameData = gameSnapshot.val();
-  const {status, players} = gameData.meta;
+  const { status, players } = gameData.meta;
 
-  // --- バリデーション ---
   if (status !== "waiting") {
-    throw new HttpsError(
-        "failed-precondition",
-        "This game is not waiting for players.",
-    );
+    throw new HttpsError("failed-precondition", "This game is not waiting for players.");
   }
   if (players.white !== 0 && players.black !== 0) {
     throw new HttpsError("failed-precondition", "This game is already full.");
   }
-  if (
-    players.creator ===
-     joinerUid || players.white ===
-      joinerUid || players.black ===
-       joinerUid
-  ) {
-    throw new HttpsError(
-        "failed-precondition",
-        "You have already joined this game.",
-    );
+  if (players.creator === joinerUid || players.white === joinerUid || players.black === joinerUid) {
+    throw new HttpsError("failed-precondition", "You have already joined this game.");
   }
 
-  // --- 対局成立処理 ---
   const creatorUid = players.creator;
-  let finalPlayers = {};
+  let finalPlayers;
 
-  // 手番が未決定の場合（ランダム）、ここで抽選する
   if (players.white === 0 && players.black === 0) {
-    if (Math.random() < 0.5) {
-      finalPlayers = {white: creatorUid, black: joinerUid};
-    } else {
-      finalPlayers = {white: joinerUid, black: creatorUid};
-    }
-  } else { // 手番が決まっている場合
+    finalPlayers = Math.random() < 0.5
+      ? { white: creatorUid, black: joinerUid }
+      : { white: joinerUid, black: creatorUid };
+  } else {
     finalPlayers = {
       white: players.white === 0 ? joinerUid : players.white,
       black: players.black === 0 ? joinerUid : players.black,
@@ -179,7 +145,6 @@ exports.joinGame = onCall(async (request) => {
   const now = admin.database.ServerValue.TIMESTAMP;
   const timeLimit = gameData.meta.gameSettings.timeControl.timeLimit;
 
-  // 複数のパスを同時に更新
   const updates = {};
   updates[`/games/${gameId}/meta/status`] = "in_progress";
   updates[`/games/${gameId}/meta/players/white`] = finalPlayers.white;
@@ -190,81 +155,50 @@ exports.joinGame = onCall(async (request) => {
   updates[`/games/${gameId}/moves/0/timers/white`] = timeLimit;
   updates[`/games/${gameId}/moves/0/timers/black`] = timeLimit;
   updates[`/games/${gameId}/moves/0/timestamp`] = now;
-  // 両プレイヤーの対戦履歴を追加
   updates[`/users/${creatorUid}/games/${gameId}`] = now;
   updates[`/users/${joinerUid}/games/${gameId}`] = now;
-  // 両プレイヤーの対戦数を1増やす
-  updates[`/users/${creatorUid}/profile/gamesPlayed`] =
-   admin.database.ServerValue.increment(1);
-  updates[`/users/${joinerUid}/profile/gamesPlayed`] =
-   admin.database.ServerValue.increment(1);
+  updates[`/users/${creatorUid}/profile/gamesPlayed`] = admin.database.ServerValue.increment(1);
+  updates[`/users/${joinerUid}/profile/gamesPlayed`] = admin.database.ServerValue.increment(1);
 
   await db.ref().update(updates);
 
-  return {success: true};
+  return { success: true };
 });
 
 
-// ▼▼▼【変更点2】古い書き方をv2のonScheduleに全面的に書き換え ▼▼▼
+// --- (3) ゴースト対局クリーンアップ ---
 const db = admin.database();
 
-// シンガポールの午前3時(日本時間午前4時)にゴースト対局をクリーンアップ
-exports.cleanupGhostGames = onSchedule("every day 03:00", async (event) => {
+export const cleanupGhostGames = onSchedule("every day 03:00", async () => {
   const gamesRef = db.ref("/games");
   const now = Date.now();
-  const fiveMinutesAgo = now - 5 * 60 * 1000; // 5分前のタイムスタンプ (ミリ秒)
+  const fiveMinutesAgo = now - 5 * 60 * 1000;
 
   const updates = {};
 
-  // --- 1. "abandoned" (破棄された) 対局をクリーンアップ ---
-  const abandonedPromise =
-    gamesRef.orderByChild("meta/status").equalTo("abandoned").once("value");
+  const [abandonedSnapshot, waitingSnapshot] = await Promise.all([
+    gamesRef.orderByChild("meta/status").equalTo("abandoned").once("value"),
+    gamesRef.orderByChild("meta/status").equalTo("waiting").once("value"),
+  ]);
 
-  // --- 2. "waiting" (待機中) のまま5分以上経過した対局をクリーンアップ ---
-  const waitingPromise =
-    gamesRef.orderByChild("meta/status").equalTo("waiting").once("value");
-
-  // 2つの非同期処理を並行して実行
-  const [abandonedSnapshot, waitingSnapshot] =
-    await Promise.all([abandonedPromise, waitingPromise]);
-
-  // "abandoned" の対局を削除リストに追加
   if (abandonedSnapshot.exists()) {
     abandonedSnapshot.forEach((gameSnap) => {
-      updates[gameSnap.key] = null; // nullをセットするとデータが削除される
+      updates[gameSnap.key] = null;
     });
-    console.log(
-        `Found ${Object.keys(updates).length} abandoned games to delete.`,
-    );
   }
 
-  // "waiting" の対局をチェックして、条件に合えば削除リストに追加
   if (waitingSnapshot.exists()) {
     waitingSnapshot.forEach((gameSnap) => {
       const gameData = gameSnap.val();
-      // meta.createdAt が存在し、かつ5分以上経過しているかチェック
-      if (
-        gameData.meta &&
-        gameData.meta.createdAt &&
-        gameData.meta.createdAt < fiveMinutesAgo
-      ) {
+      if (gameData.meta?.createdAt && gameData.meta.createdAt < fiveMinutesAgo) {
         updates[gameSnap.key] = null;
-        console.log(
-            `Game ${gameSnap.key} is older than 5 minutes. 
-            Marking for deletion.`,
-        );
       }
     });
   }
 
-  // 削除対象が1つでもあれば、一括で削除処理を実行
   if (Object.keys(updates).length > 0) {
     await gamesRef.update(updates);
-    console.log(
-        `Successfully deleted ${Object.keys(updates).length} ghost games.`,
-    );
-  } else {
-    console.log("No ghost games to delete.");
+    console.log(`Deleted ${Object.keys(updates).length} ghost games.`);
   }
 
   return null;

@@ -135,21 +135,13 @@
     </footer>
 
     <script type="module">
-        // ▼▼▼【変更点1】header.jsをインポート ▼▼▼
         import { loadHeader } from './js/header.js';
-        
-        // 既存のインポート文
-        import { getAuth, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getDatabase, ref, get, set, query, orderByValue, limitToLast, update, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { auth, database } from './js/firebase.js';
+        import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { ref, get, set, query, orderByValue, limitToLast, update, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-        // ▼▼▼【変更点2】共通ヘッダーを読み込む関数を呼び出す ▼▼▼
         loadHeader();
 
-        // ----- ここから下は、profile.html固有の処理（ほぼ変更なし）-----
-        
-        // window.firebaseApp を使うように変更
-        const auth = getAuth(window.firebaseApp);
-        const database = getDatabase(window.firebaseApp);
         const provider = new GoogleAuthProvider();
 
         let currentPage = 1;

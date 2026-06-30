@@ -127,15 +127,11 @@
 
     <script type="module">
         import { loadHeader } from './js/header.js';
-        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-        
-        // 共通ヘッダーを読み込む
-        loadHeader();
+        import { auth, database } from './js/firebase.js';
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-        // index.html固有の処理（ログイン状態でボタンの表示を切り替える）
-        const auth = getAuth(window.firebaseApp);
-        const database = getDatabase(window.firebaseApp);
+        loadHeader();
 
         onAuthStateChanged(auth, (user) => {
             const actionButtonsContainer = document.getElementById('action-buttons-container');

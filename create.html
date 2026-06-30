@@ -108,24 +108,9 @@
         import { loadHeader } from './js/header.js';
         loadHeader();
 
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, set, serverTimestamp, update, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
-            authDomain: "julius-online-a5984.firebaseapp.com",
-            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "julius-online-a5984",
-            storageBucket: "julius-online-a5984.appspot.com",
-            messagingSenderId: "688172535832",
-            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const database = getDatabase(app);
-        const auth = getAuth(app);
+        import { auth, functions } from './js/firebase.js';
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
         const timeControlToggle = document.getElementById('time-control-toggle');
         const timeSettingsPanel = document.getElementById('time-settings-panel');
@@ -154,8 +139,7 @@
             }
         });
 
-        const functions = getFunctions(app, 'asia-southeast1');
-        const createGame = httpsCallable(functions, 'createGame'); // 'createGame'という名前の関数を呼び出す準備
+        const createGame = httpsCallable(functions, 'createGame');
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -205,132 +189,6 @@
             });
         });
 
-        /*
-        async function createOfflineGame(settings, uid) {
-            const gameId = crypto.randomUUID();
-            const now = serverTimestamp();
-            const boardSize = parseInt(settings.boardSize, 10);
-            const timeLimit = parseInt(settings.timeLimit, 10) * 60;
-            const delay = parseInt(settings.delay, 10);
-            const timeControlEnabled = settings['time-control-enabled'] === 'on';
-
-            const gameData = {
-                gameId: gameId,
-                meta: {
-                    status: "in_progress", // Offline games start immediately
-                    players: { white: uid, black: uid },
-                    winner: null,
-                    winReason: null,
-                    gameSettings: {
-                        boardSize: boardSize,
-                        maxSummons: Math.floor(boardSize * boardSize / 2),
-                        timeControl: {
-                            enabled: timeControlEnabled,
-                            timeLimit: timeLimit,
-                            delay: delay,
-                        }
-                    },
-                    createdAt: now,
-                    updatedAt: now
-                },
-                moves: [
-                    {
-                        turnNumber: 0,
-                        currentPlayer: "white",
-                        board: Array.from({ length: boardSize }, () => Array.from({ length: boardSize }, () => 0)),
-                        summonCounts: { white: 0, black: 0 },
-                        timers: {
-                            white: timeLimit,
-                            black: timeLimit
-                        },
-                        timestamp: now
-                    }
-                ]
-            };
-
-            try {
-                const updates = {};
-                // games/{gameId} にゲームデータをセット
-                updates[`/games/${gameId}`] = gameData;
-                // users/{uid}/games/{gameId} にタイムスタンプをセット
-                updates[`/users/${uid}/games/${gameId}`] = now;
-                // users/{uid}/profile/gamesPlayed を1増やす
-                updates[`/users/${uid}/profile/gamesPlayed`] = increment(1);
-
-                // 複数のパスに同時に書き込む
-                await update(ref(database), updates);
-                
-                // Redirect to the game page
-                window.location.href = `game.html?id=${gameId}&mode=play`;
-            } catch (error) {
-                console.error("Failed to create game:", error);
-                alert("ゲームの作成に失敗しました。");
-            }
-        }
-
-        async function createOnlineGame(settings, uid) {
-            const gameId = crypto.randomUUID();
-            const now = serverTimestamp();
-            const boardSize = parseInt(settings.boardSize, 10);
-            const timeLimit = parseInt(settings.timeLimit, 10) * 60;
-            const delay = parseInt(settings.delay, 10);
-            const timeControlEnabled = settings['time-control-enabled'] === 'on';
-
-            let playerColor = settings.playerColor;
-            if (playerColor === 'random') {
-                playerColor = Math.random() < 0.5 ? 'white' : 'black';
-            }
-            
-            const players = {
-                white: playerColor === 'white' ? uid : 0,
-                black: playerColor === 'black' ? uid : 0,
-            };
-
-            const gameData = {
-                gameId: gameId,
-                meta: {
-                    status: "waiting", // 待機状態
-                    players: players,
-                    winner: null,
-                    winReason: null,
-                    gameSettings: {
-                        boardSize: boardSize,
-                        maxSummons: Math.floor(boardSize * boardSize / 2),
-                        timeControl: {
-                            enabled: timeControlEnabled,
-                            timeLimit: timeLimit,
-                            delay: delay,
-                        }
-                    },
-                    createdAt: now,
-                    updatedAt: now
-                },
-                moves: [
-                    {
-                        turnNumber: 0,
-                        currentPlayer: "white",
-                        board: Array.from({ length: boardSize }, () => Array.from({ length: boardSize }, () => 0)),
-                        summonCounts: { white: 0, black: 0 },
-                        timers: {
-                            white: timeLimit,
-                            black: timeLimit
-                        },
-                        timestamp: now
-                    }
-                ]
-            };
-
-            const gameRef = ref(database, 'games/' + gameId);
-            try {
-                await set(gameRef, gameData);
-                // 待機画面に遷移
-                window.location.href = `waiting.html?id=${gameId}`;
-            } catch (error) {
-                console.error("Failed to create online game:", error);
-                alert("オンライン対局の作成に失敗しました。");
-            }
-        }
-        */
     </script>
 </body>
 </html>

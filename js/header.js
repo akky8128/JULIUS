@@ -1,25 +1,8 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getDatabase, ref, get, onValue, remove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { auth, database } from './firebase.js';
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { ref, get, onValue, remove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-const firebaseConfig = {
-    apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
-    authDomain: "julius-online-a5984.firebaseapp.com",
-    databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "julius-online-a5984",
-    storageBucket: "julius-online-a5984.appspot.com",
-    messagingSenderId: "688172535832",
-    appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
-};
-
-let app;
-if (!window.firebaseApp) { app = initializeApp(firebaseConfig); window.firebaseApp = app; } 
-else { app = window.firebaseApp; }
-
-const auth = getAuth(app);
-const database = getDatabase(app);
 const notificationSound = new Audio('sounds/notification.mp3');
-
 let invitationsListener = null;
 
 export async function loadHeader(placeholderId = 'header-placeholder') {
@@ -27,11 +10,11 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
     if (!headerPlaceholder) return;
     const response = await fetch('header.html');
     headerPlaceholder.innerHTML = await response.text();
-    
+
     const authStatusContainer = document.getElementById('header-auth-status');
     const bell = document.getElementById('notification-bell');
     const dropdown = document.getElementById('notification-dropdown');
-    
+
     bell.addEventListener('click', (e) => {
         e.stopPropagation();
         dropdown.classList.toggle('hidden');
@@ -57,7 +40,6 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
             invitationsListener = onValue(invitationsRef, (snapshot) => {
                 updateNotifications(snapshot.val() || {});
             });
-
         } else {
             authStatusContainer.innerHTML = `<a href="profile.html" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">ログイン</a>`;
             updateNotifications({});
@@ -88,7 +70,6 @@ async function updateNotifications(invitations) {
 
         if (gameSnap.exists() && gameSnap.val() === 'waiting') {
             validInvitations.push({ gameId, ...inv });
-            // --- ▼▼▼ 通知音を鳴らす条件を修正 ▼▼▼ ---
             if (!notifiedGameIds.includes(gameId)) {
                 shouldPlaySound = true;
                 notifiedGameIds.push(gameId);
@@ -97,8 +78,7 @@ async function updateNotifications(invitations) {
             remove(ref(database, `invitations/${auth.currentUser.uid}/${gameId}`));
         }
     }
-    
-    // sessionStorageに保存
+
     sessionStorage.setItem('notifiedGameIds', JSON.stringify(notifiedGameIds));
 
     if (shouldPlaySound) {
@@ -108,7 +88,6 @@ async function updateNotifications(invitations) {
     if (validInvitations.length > 0) {
         badge.classList.remove('hidden');
         badge.textContent = validInvitations.length;
-
         validInvitations.forEach(inv => {
             const item = document.createElement('a');
             item.href = `join.html?id=${inv.gameId}`;

@@ -70,26 +70,9 @@
         import { loadHeader } from './js/header.js';
         loadHeader();
 
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, onValue, get, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyBSjq7McZVw23FZisxX7wpMFrpEdX7wjBo",
-            authDomain: "julius-online-a5984.firebaseapp.com",
-            databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "julius-online-a5984",
-            storageBucket: "julius-online-a5984.appspot.com",
-            messagingSenderId: "688172535832",
-            appId: "1:688172535832:web:ba8cdf48d178b4cdcf336d"
-        };
-
-        let app;
-        if (!window.firebaseApp) { app = initializeApp(firebaseConfig); window.firebaseApp = app; }
-        else { app = window.firebaseApp; }
-
-        const database = getDatabase(app);
-        const auth = getAuth(app);
+        import { auth, database } from './js/firebase.js';
+        import { ref, onValue, get, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
         const gameIdDisplay = document.getElementById('game-id-display');
         const copyButton = document.getElementById('copy-button');
