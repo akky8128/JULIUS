@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "games": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "games": {
+          ".indexOn": ".value"
+        }
+      }
+    },
+    "invitations": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
