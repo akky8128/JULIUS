@@ -1,6 +1,6 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { setGlobalOptions } from "firebase-functions/v2";
-import { onSchedule } from "firebase-functions/v2/scheduler";
+import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {setGlobalOptions} from "firebase-functions/v2";
+import {onSchedule} from "firebase-functions/v2/scheduler";
 import admin from "firebase-admin";
 import crypto from "crypto";
 
@@ -8,7 +8,7 @@ admin.initializeApp({
   databaseURL: "https://julius-online-a5984-default-rtdb.asia-southeast1.firebasedatabase.app",
 });
 
-setGlobalOptions({ maxInstances: 10, region: "asia-southeast1" });
+setGlobalOptions({maxInstances: 10, region: "asia-southeast1"});
 
 // --- (1) 対局作成関数 ---
 export const createGame = onCall(async (request) => {
@@ -34,12 +34,12 @@ export const createGame = onCall(async (request) => {
   let status;
 
   if (settings.gameType === "offline") {
-    players = { white: uid, black: uid };
+    players = {white: uid, black: uid};
     status = "in_progress";
   } else {
     const playerColor = settings.playerColor;
     if (playerColor === "random") {
-      players = { creator: uid, white: 0, black: 0 };
+      players = {creator: uid, white: 0, black: 0};
     } else {
       players = {
         creator: uid,
@@ -50,8 +50,8 @@ export const createGame = onCall(async (request) => {
     status = "waiting";
   }
 
-  const initialBoard = Array.from({ length: boardSize }, () =>
-    Array.from({ length: boardSize }, () => 0),
+  const initialBoard = Array.from({length: boardSize}, () =>
+    Array.from({length: boardSize}, () => 0),
   );
 
   const gameData = {
@@ -64,7 +64,7 @@ export const createGame = onCall(async (request) => {
       gameSettings: {
         boardSize,
         maxSummons: Math.floor(boardSize * boardSize / 2),
-        timeControl: { enabled: timeControlEnabled, timeLimit, delay },
+        timeControl: {enabled: timeControlEnabled, timeLimit, delay},
       },
       createdAt: now,
       updatedAt: now,
@@ -74,8 +74,8 @@ export const createGame = onCall(async (request) => {
       turnNumber: 0,
       currentPlayer: "white",
       board: initialBoard,
-      summonCounts: { white: 0, black: 0 },
-      timers: { white: timeLimit, black: timeLimit },
+      summonCounts: {white: 0, black: 0},
+      timers: {white: timeLimit, black: timeLimit},
       timestamp: now,
     }],
   };
@@ -90,7 +90,7 @@ export const createGame = onCall(async (request) => {
     await db.ref().update(updates);
   }
 
-  return { gameId };
+  return {gameId};
 });
 
 
@@ -116,7 +116,7 @@ export const joinGame = onCall(async (request) => {
   }
 
   const gameData = gameSnapshot.val();
-  const { status, players } = gameData.meta;
+  const {status, players} = gameData.meta;
 
   if (status !== "waiting") {
     throw new HttpsError("failed-precondition", "This game is not waiting for players.");
@@ -132,9 +132,9 @@ export const joinGame = onCall(async (request) => {
   let finalPlayers;
 
   if (players.white === 0 && players.black === 0) {
-    finalPlayers = Math.random() < 0.5
-      ? { white: creatorUid, black: joinerUid }
-      : { white: joinerUid, black: creatorUid };
+    finalPlayers = Math.random() < 0.5 ?
+      {white: creatorUid, black: joinerUid} :
+      {white: joinerUid, black: creatorUid};
   } else {
     finalPlayers = {
       white: players.white === 0 ? joinerUid : players.white,
@@ -162,7 +162,7 @@ export const joinGame = onCall(async (request) => {
 
   await db.ref().update(updates);
 
-  return { success: true };
+  return {success: true};
 });
 
 
