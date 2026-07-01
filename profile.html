@@ -44,7 +44,7 @@
                     <h2 id="nickname-display" class="text-2xl font-bold text-gray-900 truncate"></h2>
                     <div class="flex items-center space-x-2 flex-shrink-0">
                          <div id="follow-button-container"></div>
-                         <button id="logout-button" class="hidden bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-1 px-3 rounded-md text-sm transition">ログアウト</button>
+                         <button id="edit-profile-button" class="hidden bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-1 px-3 rounded-md text-sm transition">プロフィールを編集</button>
                     </div>
                 </div>
 
@@ -66,10 +66,6 @@
                 <div class="mb-4">
                     <p id="bio-display" class="text-base whitespace-pre-wrap"></p>
                 </div>
-                
-                <button id="edit-profile-button" class="hidden w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg text-sm transition">
-                    プロフィールを編集
-                </button>
             </div>
 
             <!-- 編集モード -->
@@ -128,16 +124,13 @@
     </main>
      
     <!-- フッター -->
-    <footer class="bg-white mt-16">
-        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
-            <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
-        </div>
-    </footer>
+    <div id="footer-placeholder"></div>
 
     <script type="module">
         import { loadHeader } from './js/header.js';
+        import { loadFooter } from './js/footer.js';
         import { auth, database, functions } from './js/firebase.js';
-        import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         import { ref, get, query, orderByValue, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 
@@ -145,6 +138,7 @@
         const updateProfileFn = httpsCallable(functions, 'updateProfile');
 
         loadHeader();
+        loadFooter();
 
         const provider = new GoogleAuthProvider();
 
@@ -158,7 +152,6 @@
             loginContainer: document.getElementById('login-container'),
             profileContainer: document.getElementById('profile-container'),
             loginButton: document.getElementById('login-button'),
-            logoutButton: document.getElementById('logout-button'),
             displayMode: document.getElementById('profile-display-mode'),
             nicknameDisplay: document.getElementById('nickname-display'),
             bioDisplay: document.getElementById('bio-display'),
@@ -189,7 +182,6 @@
             dom.loadingContainer.classList.add('hidden');
             dom.profileContainer.classList.remove('hidden');
             if (isOwnProfile) {
-                dom.logoutButton.classList.remove('hidden');
                 dom.editProfileButton.classList.remove('hidden');
                 dom.nicknameInput.value = profileData?.nickname || '';
                 dom.bioInput.value = profileData?.bio || '';
@@ -466,13 +458,6 @@
             signInWithPopup(auth, provider).catch(console.error);
         });
 
-        dom.logoutButton.addEventListener('click', () => {
-            signOut(auth).then(() => {
-                // ログアウト成功後にindex.htmlにリダイレクト
-                window.location.href = 'index.html';
-            }).catch(console.error);
-        });
-        
         dom.editProfileButton.addEventListener('click', () => {
             dom.displayMode.classList.add('hidden');
             dom.editMode.classList.remove('hidden');

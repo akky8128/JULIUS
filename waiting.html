@@ -60,20 +60,19 @@
         </div>
     </div>
 
-    <footer class="bg-white mt-16">
-        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
-            <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
-        </div>
-    </footer>
+    <div id="footer-placeholder"></div>
 
     <script type="module">
         import { loadHeader } from './js/header.js';
+        import { loadFooter } from './js/footer.js';
         loadHeader();
+        loadFooter();
 
         import { auth, database, functions } from './js/firebase.js';
         import { ref, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+        import { requireAuthAndNickname } from './js/authGuard.js';
 
         const createInvitationFn = httpsCallable(functions, 'createInvitation');
 
@@ -87,53 +86,49 @@
         const gameId = urlParams.get('id');
 
         async function init() {
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    if (!gameId) {
-                        document.querySelector('main div').innerHTML = '<h2 class="text-3xl font-bold text-red-500">エラー: 対局IDが見つかりません。</h2>';
-                        return;
-                    }
+            onAuthStateChanged(auth, async (user) => {
+                if (!(await requireAuthAndNickname(user, database))) return;
 
-                    gameIdDisplay.textContent = gameId;
-
-                    copyButton.addEventListener('click', () => {
-                        navigator.clipboard.writeText(gameId).then(() => {
-                            copyFeedback.textContent = 'コピーしました！';
-                            setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
-                        });
-                    });
-
-                    // ▼▼▼【変更点】statusだけでなく、対局データ全体を監視する ▼▼▼
-                    const gameRef = ref(database, `games/${gameId}`);
-
-                    const unsubscribe = onValue(gameRef, (snapshot) => {
-                        // --- データが存在する場合 ---
-                        if (snapshot.exists()) {
-                            const gameData = snapshot.val();
-                            if (gameData.meta.status === 'in_progress') {
-                                unsubscribe(); // 監視を停止
-                                const redirectToGame = () => {
-                                    window.location.href = `game.html?id=${gameId}&mode=play`;
-                                };
-
-                                matchFoundSound.play().catch(e => redirectToGame()).then(() => {
-                                setTimeout(redirectToGame, 500); // 音が鳴り終わるのを少し待つ
-                                });
-                            }
-                        // --- データが存在しない（削除された）場合 ---
-                        } else {
-                            unsubscribe(); // 監視を停止
-                            alert("対戦相手が見つからなかったため、この対局は期限切れとなりました。");
-                            window.location.href = 'index.html';
-                        }
-                    });
-
-                    setupInviteModal(user);
-
-                } else {
-                    alert("ログインが必要です。トップページに戻ります。");
-                    window.location.href = 'index.html';
+                if (!gameId) {
+                    document.querySelector('main div').innerHTML = '<h2 class="text-3xl font-bold text-red-500">エラー: 対局IDが見つかりません。</h2>';
+                    return;
                 }
+
+                gameIdDisplay.textContent = gameId;
+
+                copyButton.addEventListener('click', () => {
+                    navigator.clipboard.writeText(gameId).then(() => {
+                        copyFeedback.textContent = 'コピーしました！';
+                        setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
+                    });
+                });
+
+                // ▼▼▼【変更点】statusだけでなく、対局データ全体を監視する ▼▼▼
+                const gameRef = ref(database, `games/${gameId}`);
+
+                const unsubscribe = onValue(gameRef, (snapshot) => {
+                    // --- データが存在する場合 ---
+                    if (snapshot.exists()) {
+                        const gameData = snapshot.val();
+                        if (gameData.meta.status === 'in_progress') {
+                            unsubscribe(); // 監視を停止
+                            const redirectToGame = () => {
+                                window.location.href = `game.html?id=${gameId}&mode=play`;
+                            };
+
+                            matchFoundSound.play().catch(e => redirectToGame()).then(() => {
+                            setTimeout(redirectToGame, 500); // 音が鳴り終わるのを少し待つ
+                            });
+                        }
+                    // --- データが存在しない（削除された）場合 ---
+                    } else {
+                        unsubscribe(); // 監視を停止
+                        alert("対戦相手が見つからなかったため、この対局は期限切れとなりました。");
+                        window.location.href = 'index.html';
+                    }
+                });
+
+                setupInviteModal(user);
             });
         }
 

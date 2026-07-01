@@ -423,6 +423,18 @@ export const toggleFollow = onCall(async (request) => {
   updates[`/users/${targetUid}/followers/${uid}`] = isNowFollowing ? true : null;
   updates[`/users/${uid}/profile/followingCount`] = admin.database.ServerValue.increment(isNowFollowing ? 1 : -1);
   updates[`/users/${targetUid}/profile/followersCount`] = admin.database.ServerValue.increment(isNowFollowing ? 1 : -1);
+
+  if (isNowFollowing) {
+    const followerNicknameSnap = await db.ref(`/users/${uid}/profile/nickname`).once("value");
+    const followerNickname = followerNicknameSnap.exists() ? followerNicknameSnap.val() : "ゲスト";
+    updates[`/followNotifications/${targetUid}/${uid}`] = {
+      followerNickname,
+      timestamp: admin.database.ServerValue.TIMESTAMP,
+    };
+  } else {
+    updates[`/followNotifications/${targetUid}/${uid}`] = null;
+  }
+
   await db.ref().update(updates);
 
   return {following: isNowFollowing};
@@ -532,7 +544,24 @@ export const dismissInvitation = onCall(async (request) => {
 });
 
 
-// --- (9) ゴースト対局クリーンアップ ---
+// --- (9) フォロー通知の既読化 ---
+export const dismissFollowNotification = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication is required.");
+  }
+  const uid = request.auth.uid;
+  const {followerUid} = request.data || {};
+
+  if (!followerUid || typeof followerUid !== "string") {
+    throw new HttpsError("invalid-argument", "followerUid is required.");
+  }
+
+  await admin.database().ref(`/followNotifications/${uid}/${followerUid}`).remove();
+  return {success: true};
+});
+
+
+// --- (10) ゴースト対局クリーンアップ ---
 const db = admin.database();
 
 export const cleanupGhostGames = onSchedule("every day 03:00", async () => {

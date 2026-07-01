@@ -20,6 +20,12 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": false
       }
+    },
+    "followNotifications": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
     }
   }
 }

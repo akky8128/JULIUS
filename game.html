@@ -41,6 +41,18 @@
         .cell.decreased::before {
             background-color: rgba(220, 38, 38, 0.4); /* 半透明の赤 */
         }
+
+        .kifu-scroll {
+            overflow-x: auto;
+            white-space: nowrap;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            -webkit-mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+            mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+        }
+        .kifu-scroll::-webkit-scrollbar { display: none; }
+        #kifu-text { padding: 0 16px; }
+        .kifu-move.kifu-active { background-color: #d1d5db; border-radius: 4px; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -91,8 +103,12 @@
                 <button id="cancel-button" class="hidden w-1/2 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow">キャンセル</button>
                 <button id="end-turn-button" class="hidden w-1/2 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg shadow">ターン終了</button>
             </div>
-             <div id="exit-button-container" class="text-center mt-4">
-                <a href="index.html" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition">トップページへ戻る</a>
+        </div>
+
+        <!-- 棋譜表示セクション -->
+        <div id="kifu-section" class="bg-white rounded-lg shadow-md p-3 mt-4">
+            <div id="kifu-scroll" class="kifu-scroll">
+                <span id="kifu-text" class="font-mono text-sm text-gray-700"></span>
             </div>
         </div>
 
@@ -103,6 +119,10 @@
             <span id="turn-display" class="font-semibold text-gray-700">Turn 0 / 0</span>
             <button id="next-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-step-forward"></i></button>
             <button id="last-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-fast-forward"></i></button>
+        </div>
+
+        <div id="exit-button-container" class="bg-white rounded-lg shadow-md p-4 mt-4 text-center">
+            <a href="index.html" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition">トップページへ戻る</a>
         </div>
 
         <div id="copy-id-section" class="bg-white rounded-lg shadow-md p-4 mt-4 text-center">
@@ -129,20 +149,19 @@
         </div>
     </div>
 
-    <footer class="bg-white mt-16">
-        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
-            <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
-        </div>
-    </footer>
+    <div id="footer-placeholder"></div>
 
     <script type="module">
         import { loadHeader } from './js/header.js';
+        import { loadFooter } from './js/footer.js';
         loadHeader();
+        loadFooter();
 
         import { auth, database, functions } from './js/firebase.js';
         import { ref, get, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+        import { requireAuthAndNickname } from './js/authGuard.js';
 
         const submitMove = httpsCallable(functions, 'submitMove');
         const claimTimeout = httpsCallable(functions, 'claimTimeout');
@@ -213,6 +232,7 @@
                     nextMoveBtn: document.getElementById('next-move-btn'),
                     lastMoveBtn: document.getElementById('last-move-btn'),
                     turnDisplay: document.getElementById('turn-display'),
+                    kifuText: document.getElementById('kifu-text'),
                     modal: document.getElementById('modal'),
                     modalTitle: document.getElementById('modal-title'),
                     modalContent: document.getElementById('modal-content'),
@@ -233,12 +253,15 @@
                     return;
                 }
                 
-                onAuthStateChanged(auth, (user) => {
-                    if (user || this.mode === 'spectate') {
+                onAuthStateChanged(auth, async (user) => {
+                    if (this.mode === 'spectate') {
+                        // 観戦モードは未ログインでも閲覧できる仕様のため対象外
                         this.loadGameData(user);
-                    } else {
-                        this.dom.loadingContainer.textContent = 'エラー: ログインが必要です。トップページに戻ってログインしてください。';
+                        return;
                     }
+
+                    if (!(await requireAuthAndNickname(user, database))) return;
+                    this.loadGameData(user);
                 });
             }
 
@@ -321,6 +344,10 @@
             loadLatestState() {
                 if (!this.gameData) return;
 
+                // 対局IDの表示は状態に関わらず常に必要なため、早期returnより前に設定する
+                this.dom.gameId.textContent = this.gameData.gameId;
+                this.dom.gameIdDisplayFooter.textContent = this.gameData.gameId;
+
                 // ゲームが既に終了している場合、UIの状態をリセットせずに終了する
                 if (this.gameData.meta.status === 'completed') {
                     this.render(); // 盤面の再描画のみ行う
@@ -344,8 +371,6 @@
                 this.turnStartBoardState = JSON.parse(JSON.stringify(this.currentTurnState.board));
                 this.turnActions = [];
 
-                this.dom.gameId.textContent = this.gameData.gameId;
-                this.dom.gameIdDisplayFooter.textContent = this.gameData.gameId;
                 this.uiGameState = 'IDLE';
                 this.selectedCoords = null;
                 this.lastMoveDest = null;
@@ -375,6 +400,62 @@
                 this.updateInfo();
                 this.highlight();
                 this.updateReplayControls();
+                this.renderKifu();
+            }
+
+            // 2つの盤面を比較し、駒が減ったマス→増えたマスの順に座標を並べた棋譜トークンを生成する
+            diffToNotation(boardBefore, boardAfter, boardSize) {
+                const stackLength = (board, r, c) => {
+                    const cell = board?.[r]?.[c];
+                    return Array.isArray(cell) ? cell.length : 0;
+                };
+                const toCoord = (r, c) => `${String.fromCharCode(97 + c)}${boardSize - r}`;
+
+                const decreased = [];
+                const increased = [];
+                for (let r = 0; r < boardSize; r++) {
+                    for (let c = 0; c < boardSize; c++) {
+                        const delta = stackLength(boardAfter, r, c) - stackLength(boardBefore, r, c);
+                        if (delta < 0) decreased.push({ r, c, mag: -delta });
+                        else if (delta > 0) increased.push({ r, c, mag: delta });
+                    }
+                }
+
+                const toToken = ({ r, c, mag }) => (mag >= 2 ? mag : '') + toCoord(r, c);
+                return [...decreased, ...increased].map(toToken).join('');
+            }
+
+            // 棋譜を「N.」ラベルと、盤面インデックスに対応付けた半手ごとの<span>で組み立てる
+            buildKifuHTML() {
+                const moves = this.gameData.moves;
+                const { boardSize } = this.gameData.meta.gameSettings;
+                const halfMoves = [];
+                for (let i = 1; i < moves.length; i++) {
+                    halfMoves.push(this.diffToNotation(moves[i - 1].board, moves[i].board, boardSize));
+                }
+
+                const parts = [];
+                for (let i = 0; i < halfMoves.length; i += 2) {
+                    const turnNumber = i / 2 + 1;
+                    parts.push(`<span class="kifu-turn-num">${turnNumber}.</span>`);
+                    parts.push(`<span class="kifu-move" data-half-index="${i}">${halfMoves[i] || ''}</span>`);
+                    if (halfMoves[i + 1] !== undefined) {
+                        parts.push(`<span class="kifu-move" data-half-index="${i + 1}">${halfMoves[i + 1]}</span>`);
+                    }
+                }
+                return parts.join(' ');
+            }
+
+            // halfMoves[k]はmoves[k+1]の盤面を生んだ手に対応するため、
+            // 現在表示中のviewingTurnNumberに追従させるにはインデックスを1つずらす
+            renderKifu() {
+                this.dom.kifuText.innerHTML = this.buildKifuHTML();
+                const activeIndex = this.viewingTurnNumber - 1;
+                const activeEl = this.dom.kifuText.querySelector(`.kifu-move[data-half-index="${activeIndex}"]`);
+                if (activeEl) {
+                    activeEl.classList.add('kifu-active');
+                    activeEl.scrollIntoView({ block: 'nearest', inline: 'center' });
+                }
             }
 
             renderBoard(boardData) {

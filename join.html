@@ -48,19 +48,18 @@
     </main>
 
      <!-- フッター -->
-    <footer class="bg-white mt-16">
-        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
-            <p>&copy; 2025 JuliUs. All rights reserved. Created by Akky.</p>
-        </div>
-    </footer>
+    <div id="footer-placeholder"></div>
 
     <script type="module">
         import { loadHeader } from './js/header.js';
+        import { loadFooter } from './js/footer.js';
         loadHeader();
+        loadFooter();
 
-        import { auth, functions } from './js/firebase.js';
+        import { auth, database, functions } from './js/firebase.js';
         import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+        import { requireAuthAndNickname } from './js/authGuard.js';
 
         const joinGame = httpsCallable(functions, 'joinGame');
 
@@ -78,13 +77,10 @@
         const buttonText = document.getElementById('button-text');
         const buttonSpinner = document.getElementById('button-spinner');
 
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                joinButton.disabled = false;
-            } else {
-                alert("ログインが必要です。トップページに戻ります。");
-                window.location.href = 'index.html';
-            }
+        onAuthStateChanged(auth, async (user) => {
+            if (!(await requireAuthAndNickname(user, database))) return;
+
+            joinButton.disabled = false;
         });
 
         // ▼▼▼【変更点】フォーム送信時の処理を全面的に変更 ▼▼▼
