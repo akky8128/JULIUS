@@ -70,9 +70,12 @@
         import { loadHeader } from './js/header.js';
         loadHeader();
 
-        import { auth, database } from './js/firebase.js';
-        import { ref, onValue, get, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { auth, database, functions } from './js/firebase.js';
+        import { ref, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+        const createInvitationFn = httpsCallable(functions, 'createInvitation');
 
         const gameIdDisplay = document.getElementById('game-id-display');
         const copyButton = document.getElementById('copy-button');
@@ -185,15 +188,14 @@
                     btn.disabled = true;
                     btn.textContent = '招待済み';
 
-                    const inviterProfileSnap = await get(ref(database, `users/${currentUser.uid}/profile`));
-                    const inviterNickname = inviterProfileSnap.exists() ? inviterProfileSnap.val().nickname : 'ゲスト';
-                    
-                    const invitationRef = ref(database, `invitations/${targetUid}/${gameId}`);
-                    await set(invitationRef, {
-                        inviterUid: currentUser.uid,
-                        inviterNickname: inviterNickname,
-                        timestamp: serverTimestamp()
-                    });
+                    try {
+                        await createInvitationFn({gameId, targetUid});
+                    } catch (error) {
+                        console.error("Failed to create invitation:", error);
+                        btn.disabled = false;
+                        btn.textContent = '招待';
+                        alert('招待の送信に失敗しました。');
+                    }
                 }
             });
         }

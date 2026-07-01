@@ -139,9 +139,13 @@
         import { loadHeader } from './js/header.js';
         loadHeader();
 
-        import { auth, database } from './js/firebase.js';
-        import { ref, get, set, onValue, off, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { auth, database, functions } from './js/firebase.js';
+        import { ref, get, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+        const submitMove = httpsCallable(functions, 'submitMove');
+        const claimTimeout = httpsCallable(functions, 'claimTimeout');
 
         // ニックネームなどユーザー入力を含む値を安全にリンク付きで表示するヘルパー
         function renderPlayerNameLink(el, uid, nickname, fallbackText) {
@@ -177,6 +181,7 @@
                 this.mode = 'spectate'; // 'play' or 'spectate'
                 this.dbRef = null;
                 this.turnStartBoardState = null;
+                this.turnActions = [];
                 this.activeTimerTurnNumber = -1;
                 this.serverTimeOffset = 0;
                 this.playerProfiles = { white: null, black: null };
@@ -337,7 +342,8 @@
                 this.currentTurnState = JSON.parse(JSON.stringify(this.gameData.moves[this.viewingTurnNumber]));
 
                 this.turnStartBoardState = JSON.parse(JSON.stringify(this.currentTurnState.board));
-                
+                this.turnActions = [];
+
                 this.dom.gameId.textContent = this.gameData.gameId;
                 this.dom.gameIdDisplayFooter.textContent = this.gameData.gameId;
                 this.uiGameState = 'IDLE';
@@ -547,6 +553,7 @@
                 // 操作中の盤面を、最後に保存された状態に戻す
                 this.currentTurnState = JSON.parse(JSON.stringify(this.gameData.moves[latestMoveIndex]));
                 this.turnStartBoardState = JSON.parse(JSON.stringify(this.currentTurnState.board));
+                this.turnActions = [];
 
                 // UIの状態もリセットする
                 this.uiGameState = 'IDLE';
@@ -669,6 +676,7 @@
                 }
                 this.currentTurnState.board[r][c].push(currentPlayer);
                 this.currentTurnState.summonCounts[currentPlayer]++;
+                this.turnActions.push({ type: 'summon', r, c });
                 this.setMessage(`${currentPlayer === 'white' ? '白' : '黒'}が駒を召喚しました。`);
                 this.uiGameState = 'ACTION_TAKEN';
                 this.render();
@@ -683,6 +691,12 @@
                 // ▲▲▲ 変更箇所 ▲▲▲
                 const piecesToMove = this.currentTurnState.board[startR][startC].splice(-pieceCount);
                 this.currentTurnState.board[endR][endC].push(...piecesToMove);
+                this.turnActions.push({
+                    type: 'move',
+                    from: { r: startR, c: startC },
+                    to: { r: endR, c: endC },
+                    count: pieceCount
+                });
 
                 // 移動元のマスに駒がなくなった場合、0 を代入してデータを保持する
                 if (this.currentTurnState.board[startR][startC].length === 0) {
@@ -731,6 +745,7 @@
                 
                 if (opponentPieceIndex !== -1) {
                     this.currentTurnState.board[r][c].splice(opponentPieceIndex, 1);
+                    this.turnActions.push({ type: 'eliminate', r, c });
                     this.setMessage(`${currentPlayer === 'white' ? '白' : '黒'}が相手の駒を排除しました。`);
                     this.uiGameState = 'ACTION_TAKEN';
                     this.render();
@@ -741,7 +756,8 @@
             
             async endTurn() {
                 // 盤面状態がターン開始時と変わっていない場合（実質的なパス）はターン終了しない
-                if (JSON.stringify(this.turnStartBoardState) === JSON.stringify(this.currentTurnState.board)) {
+                if (this.turnActions.length === 0 ||
+                    JSON.stringify(this.turnStartBoardState) === JSON.stringify(this.currentTurnState.board)) {
                     this.setMessage('変更がありません。実質的なパスは禁止されています。');
                     return;
                 }
@@ -749,44 +765,29 @@
                 if (this.timerInterval) clearInterval(this.timerInterval);
 
                 const lastMove = this.gameData.moves[this.gameData.moves.length - 1];
-                const newTurnNumber = lastMove.turnNumber + 1;
-                const newCurrentPlayer = lastMove.currentPlayer === 'white' ? 'black' : 'white';
 
-                const newTimers = { ...lastMove.timers };
-                const timeWhenTurnStarted = lastMove.timestamp;
+                this.dom.endTurnBtn.disabled = true;
+                this.dom.cancelBtn.disabled = true;
+                this.setMessage('サーバーに送信中...');
 
-                // タイムスタンプが数値として解決されている場合のみ時間計算を実行
-                if (typeof timeWhenTurnStarted === 'number') {
-                    const remainingTimeAtTurnStart = lastMove.timers[lastMove.currentPlayer];
-                    const { delay } = this.gameData.meta.gameSettings.timeControl;
-                    
-                    const estimatedServerTimeNow = Date.now() + this.serverTimeOffset;
-                    const elapsedTimeMs = Math.max(0, estimatedServerTimeNow - timeWhenTurnStarted);
-                    const elapsedTimeSec = Math.floor(elapsedTimeMs / 1000);
-                    
-                    const timeToDeduct = Math.max(0, elapsedTimeSec - delay);
-                    const newRemainingTime = Math.max(0, remainingTimeAtTurnStart - timeToDeduct);
-                    newTimers[lastMove.currentPlayer] = newRemainingTime;
+                try {
+                    // 実際の盤面更新・勝敗判定はすべてサーバー側(submitMove)で検証・確定される。
+                    // 成功すればonValueの購読を通じて確定済みの状態が自動的に反映される。
+                    await submitMove({
+                        gameId: this.gameId,
+                        turnNumber: lastMove.turnNumber,
+                        actions: this.turnActions
+                    });
+                } catch (error) {
+                    console.error('Failed to submit move:', error);
+                    this.setMessage(error.message || '手の送信に失敗しました。もう一度お試しください。');
+                    this.resetUncommittedChanges();
+                    this.viewingTurnNumber = this.gameData.moves.length - 1;
+                    this.render();
+                } finally {
+                    this.dom.endTurnBtn.disabled = false;
+                    this.dom.cancelBtn.disabled = false;
                 }
-
-                const newMove = {
-                    turnNumber: newTurnNumber,
-                    currentPlayer: newCurrentPlayer,
-                    board: JSON.parse(JSON.stringify(this.currentTurnState.board)),
-                    summonCounts: JSON.parse(JSON.stringify(this.currentTurnState.summonCounts)),
-                    timers: newTimers,
-                    timestamp: serverTimestamp()
-                };
-
-                this.gameData.moves.push(newMove);
-                this.gameData.meta.updatedAt = serverTimestamp();
-                
-                 if (this.checkWinCondition(newMove)) {
-                    const winner = newMove.currentPlayer === 'white' ? 'black' : 'white';
-                    await this.endGame(winner, `${newMove.currentPlayer === 'white' ? '白' : '黒'}は有効な手を指せなくなりました。`);
-                 } else {
-                    await this.saveGameData();
-                 }
             }
             
             cancelTurn() {
@@ -883,55 +884,6 @@
                 // ▲▲▲ 変更箇所 ▲▲▲
             }
 
-            checkWinCondition(state) {
-                const { board, summonCounts, currentPlayer } = state;
-                const { maxSummons, boardSize } = this.gameData.meta.gameSettings;
-                
-                const opponent = currentPlayer; 
-
-                if (summonCounts[opponent] < maxSummons) {
-                    for (let r = 0; r < boardSize; r++) {
-                        // 防御的に行の存在をチェック
-                        if (!board[r]) return false;
-                        for (let c = 0; c < boardSize; c++) {
-                            if (!Array.isArray(board[r][c]) || board[r][c].length === 0) return false;
-                        }
-                    }
-                }
-
-                for (let r = 0; r < boardSize; r++) {
-                    // 防御的に行の存在をチェック
-                    if (!board[r]) continue;
-                    for (let c = 0; c < boardSize; c++) {
-                        const stack = board[r][c];
-                        // スタックが配列であることを確認
-                        if (Array.isArray(stack) && stack.length > 0 && stack[stack.length - 1] === opponent) {
-                            return false; 
-                        }
-                    }
-                }
-                return true;
-            }
-
-            async endGame(winner, reason) {
-                if (this.timerInterval) clearInterval(this.timerInterval);
-                this.gameData.meta.status = 'completed';
-                this.gameData.meta.winner = winner;
-                this.gameData.meta.winReason = reason;
-                this.gameData.meta.updatedAt = serverTimestamp(); // サーバー時刻を保存
-
-                await this.saveGameData(); 
-            }
-
-            async saveGameData() {
-                try {
-                    await set(this.dbRef, this.gameData);
-                } catch (error) {
-                    console.error("Failed to save game data:", error);
-                    this.showModal('エラー', 'ゲームデータの保存に失敗しました。');
-                }
-            }
-
             startTimer() {
                 const latestTurnNumber = this.gameData.moves.length - 1;
                 if (this.activeTimerTurnNumber === latestTurnNumber && this.timerInterval) {
@@ -966,10 +918,12 @@
                     // --- 時間切れチェック ---
                     if (currentRemainingTime <= 0) {
                         clearInterval(this.timerInterval);
-                        // プレイヤーのみがゲームを終了させられる
+                        // 時間切れの確定はサーバー側(claimTimeout)が検証する。
+                        // どちらのプレイヤーが呼んでも安全（後勝ちはサーバー側で弾かれる）。
                         if (this.mode === 'play') {
-                            const winner = latestState.currentPlayer === 'white' ? 'black' : 'white';
-                            this.endGame(winner, `${latestState.currentPlayer === 'white' ? '白' : '黒'}の時間切れです。`);
+                            claimTimeout({ gameId: this.gameId }).catch((error) => {
+                                console.warn('claimTimeout failed (may already be resolved):', error);
+                            });
                         }
                     }
                 }, 500); // 描画頻度を少し上げる

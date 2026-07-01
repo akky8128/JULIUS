@@ -1,6 +1,9 @@
-import { auth, database } from './firebase.js';
+import { auth, database, functions } from './firebase.js';
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { ref, get, onValue, remove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { ref, get, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+const dismissInvitationFn = httpsCallable(functions, 'dismissInvitation');
 
 const notificationSound = new Audio('sounds/notification.mp3');
 let invitationsListener = null;
@@ -81,7 +84,9 @@ async function updateNotifications(invitations) {
                 notifiedGameIds.push(gameId);
             }
         } else {
-            remove(ref(database, `invitations/${auth.currentUser.uid}/${gameId}`));
+            dismissInvitationFn({gameId}).catch((error) => {
+                console.error("Failed to dismiss stale invitation:", error);
+            });
         }
     }
 

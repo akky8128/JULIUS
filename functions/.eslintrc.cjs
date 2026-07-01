@@ -19,6 +19,8 @@ module.exports = {
     "max-len": ["error", {"code": 120}],
     "operator-linebreak": ["error", "after"],
     "indent": ["error", 2],
+    "require-jsdoc": "off",
+    "valid-jsdoc": "off",
   },
   overrides: [
     {

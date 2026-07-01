@@ -136,9 +136,13 @@
 
     <script type="module">
         import { loadHeader } from './js/header.js';
-        import { auth, database } from './js/firebase.js';
+        import { auth, database, functions } from './js/firebase.js';
         import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { ref, get, set, query, orderByValue, limitToLast, update, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { ref, get, query, orderByValue, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+        const toggleFollowFn = httpsCallable(functions, 'toggleFollow');
+        const updateProfileFn = httpsCallable(functions, 'updateProfile');
 
         loadHeader();
 
@@ -429,31 +433,8 @@
             // ボタンクリック時の処理
             followButton.addEventListener('click', async () => {
                 followButton.disabled = true; // 連打防止
-                const updates = {};
-                
-                if (isFollowing) {
-                    // --- アンフォロー処理 ---
-                    // 自分のfollowingリストから相手を削除
-                    updates[`/users/${currentUser.uid}/following/${viewedUid}`] = null; 
-                    // 相手のfollowersリストから自分を削除
-                    updates[`/users/${viewedUid}/followers/${currentUser.uid}`] = null;
-                    // カウントを1減らす
-                    updates[`/users/${currentUser.uid}/profile/followingCount`] = increment(-1);
-                    updates[`/users/${viewedUid}/profile/followersCount`] = increment(-1);
-
-                } else {
-                    // --- フォロー処理 ---
-                    // 自分のfollowingリストに相手を追加
-                    updates[`/users/${currentUser.uid}/following/${viewedUid}`] = true;
-                    // 相手のfollowersリストに自分を追加
-                    updates[`/users/${viewedUid}/followers/${currentUser.uid}`] = true;
-                    // カウントを1増やす
-                    updates[`/users/${currentUser.uid}/profile/followingCount`] = increment(1);
-                    updates[`/users/${viewedUid}/profile/followersCount`] = increment(1);
-                }
-
                 try {
-                    await update(ref(database), updates);
+                    await toggleFollowFn({targetUid: viewedUid});
                     // 成功したらページを再読み込みして表示を更新
                     window.location.reload();
                 } catch (error) {
@@ -512,27 +493,10 @@
                 nickname: dom.nicknameInput.value.trim(),
                 bio: dom.bioInput.value.trim()
             };
-            
+
             dom.saveProfileButton.disabled = true;
             try {
-                const profileRef = ref(database, `users/${user.uid}/profile`);
-                
-                // 1. 現在のプロフィールデータを取得
-                const snapshot = await get(profileRef);
-                const currentProfile = snapshot.exists() ? snapshot.val() : {};
-
-                // 2. 新しいデータと既存のデータをマージ
-                const updatedProfile = {
-                    ...currentProfile, // 既存のデータを保持
-                    nickname: dom.nicknameInput.value.trim(),
-                    bio: dom.bioInput.value.trim(),
-                    // 存在しない場合のみ、カウンターを0で初期化
-                    gamesPlayed: currentProfile.gamesPlayed || 0,
-                    followingCount: currentProfile.followingCount || 0,
-                    followersCount: currentProfile.followersCount || 0
-                };
-
-                await set(profileRef, updatedProfile);
+                await updateProfileFn(newProfile);
                 dom.saveFeedback.textContent = '保存しました！';
 
                 // 表示を更新
@@ -634,25 +598,12 @@
             if (!currentUser || !targetUid) return;
 
             button.disabled = true;
-            const isCurrentlyFollowing = button.textContent.trim() === 'フォロー解除';
-            
-            const updates = {};
-            if (isCurrentlyFollowing) { // アンフォロー
-                updates[`/users/${currentUser.uid}/following/${targetUid}`] = null;
-                updates[`/users/${targetUid}/followers/${currentUser.uid}`] = null;
-                updates[`/users/${currentUser.uid}/profile/followingCount`] = increment(-1);
-                updates[`/users/${targetUid}/profile/followersCount`] = increment(-1);
-            } else { // フォロー
-                updates[`/users/${currentUser.uid}/following/${targetUid}`] = true;
-                updates[`/users/${targetUid}/followers/${currentUser.uid}`] = true;
-                updates[`/users/${currentUser.uid}/profile/followingCount`] = increment(1);
-                updates[`/users/${targetUid}/profile/followersCount`] = increment(1);
-            }
 
             try {
-                await update(ref(database), updates);
-                // ボタンの表示を即時更新
-                button.textContent = isCurrentlyFollowing ? 'フォローする' : 'フォロー解除';
+                const result = await toggleFollowFn({targetUid});
+                const isNowFollowing = result.data.following;
+                // ボタンの表示をサーバーが確定させた状態で更新
+                button.textContent = isNowFollowing ? 'フォロー解除' : 'フォローする';
                 button.classList.toggle('bg-gray-200');
                 button.classList.toggle('hover:bg-gray-300');
                 button.classList.toggle('text-gray-800');
