@@ -30,11 +30,17 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
             const snapshot = await get(userProfileRef);
             const userNickname = snapshot.exists() ? snapshot.val().nickname : null;
 
+            authStatusContainer.innerHTML = '';
+            const authLink = document.createElement('a');
+            authLink.href = `profile.html?uid=${encodeURIComponent(user.uid)}`;
             if (userNickname) {
-                authStatusContainer.innerHTML = `<a href="profile.html?uid=${user.uid}" class="font-bold text-gray-700 hover:text-blue-600">${userNickname}</a>`;
+                authLink.className = 'font-bold text-gray-700 hover:text-blue-600';
+                authLink.textContent = userNickname;
             } else {
-                authStatusContainer.innerHTML = `<a href="profile.html?uid=${user.uid}" class="font-bold text-yellow-600 hover:text-yellow-700">ニックネームを設定</a>`;
+                authLink.className = 'font-bold text-yellow-600 hover:text-yellow-700';
+                authLink.textContent = 'ニックネームを設定';
             }
+            authStatusContainer.appendChild(authLink);
 
             const invitationsRef = ref(database, `invitations/${user.uid}`);
             invitationsListener = onValue(invitationsRef, (snapshot) => {
@@ -92,10 +98,17 @@ async function updateNotifications(invitations) {
             const item = document.createElement('a');
             item.href = `join.html?id=${inv.gameId}`;
             item.className = 'block p-3 hover:bg-gray-100 border-b';
-            item.innerHTML = `
-                <p class="font-semibold">${inv.inviterNickname || 'ゲスト'}さん</p>
-                <p class="text-sm text-gray-600">から対局に招待されました。</p>
-            `;
+
+            const nameP = document.createElement('p');
+            nameP.className = 'font-semibold';
+            nameP.textContent = `${inv.inviterNickname || 'ゲスト'}さん`;
+
+            const descP = document.createElement('p');
+            descP.className = 'text-sm text-gray-600';
+            descP.textContent = 'から対局に招待されました。';
+
+            item.appendChild(nameP);
+            item.appendChild(descP);
             list.appendChild(item);
         });
     } else {

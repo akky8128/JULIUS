@@ -7,9 +7,19 @@
     "users": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
         "games": {
           ".indexOn": ".value"
+        },
+        "followers": {
+          "$followerUid": {
+            ".write": "auth != null && auth.uid === $followerUid"
+          }
+        },
+        "profile": {
+          "followersCount": {
+            ".write": "auth != null && newData.isNumber() && (newData.val() === (data.exists() ? data.val() : 0) + 1 || newData.val() === (data.exists() ? data.val() : 0) - 1)"
+          }
         }
       }
     },

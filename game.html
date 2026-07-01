@@ -143,6 +143,20 @@
         import { ref, get, set, onValue, off, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
+        // ニックネームなどユーザー入力を含む値を安全にリンク付きで表示するヘルパー
+        function renderPlayerNameLink(el, uid, nickname, fallbackText) {
+            el.textContent = '';
+            if (!uid) {
+                el.textContent = fallbackText;
+                return;
+            }
+            const link = document.createElement('a');
+            link.href = `profile.html?uid=${encodeURIComponent(uid)}`;
+            link.className = 'hover:underline';
+            link.textContent = nickname;
+            el.appendChild(link);
+        }
+
         class GameManager {
             constructor() {
                 this.gameData = null;
@@ -416,8 +430,8 @@
                 const whiteNickname = whiteProfile?.nickname || 'ゲスト';
                 const blackNickname = blackProfile?.nickname || (blackUid === 0 ? '対戦相手待ち' : 'ゲスト');
 
-                document.getElementById('white-player-name').innerHTML = whiteUid ? `<a href="profile.html?uid=${whiteUid}" class="hover:underline">${whiteNickname}</a>` : 'プレイヤー1';
-                document.getElementById('black-player-name').innerHTML = blackUid ? `<a href="profile.html?uid=${blackUid}" class="hover:underline">${blackNickname}</a>` : 'プレイヤー2';
+                renderPlayerNameLink(document.getElementById('white-player-name'), whiteUid, whiteNickname, 'プレイヤー1');
+                renderPlayerNameLink(document.getElementById('black-player-name'), blackUid, blackNickname, 'プレイヤー2');
 
                 const myId = auth.currentUser ? auth.currentUser.uid : null;
                 // オンライン対戦の場合のみプレイヤーカラーを表示

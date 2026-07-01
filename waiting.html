@@ -161,7 +161,17 @@
 
                     const item = document.createElement('div');
                     item.className = 'py-2 flex justify-between items-center';
-                    item.innerHTML = `<span>${nickname}</span><button class="invite-btn bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600" data-uid="${uid}">招待</button>`;
+
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = nickname;
+
+                    const inviteBtn = document.createElement('button');
+                    inviteBtn.className = 'invite-btn bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600';
+                    inviteBtn.dataset.uid = uid;
+                    inviteBtn.textContent = '招待';
+
+                    item.appendChild(nameSpan);
+                    item.appendChild(inviteBtn);
                     userList.appendChild(item);
                 }
             });

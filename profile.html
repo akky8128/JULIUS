@@ -347,22 +347,33 @@
                 const date = new Date(game.timestamp).toLocaleString('ja-JP');
                 const opponentUid = players.white === viewedUid ? players.black : players.white;
                 const opponentProfile = opponentUid ? await fetchUserProfile(opponentUid) : { nickname: 'オフライン' };
-                const opponentName = opponentUid !== 'offline' && opponentUid
-                    ? `<a href="profile.html?uid=${opponentUid}" class="font-semibold text-blue-600 hover:underline">${opponentProfile?.nickname || 'ゲスト'}</a>`
-                    : `<span class="font-semibold">${opponentProfile?.nickname || 'オフライン'}</span>`;
 
                 const listItem = document.createElement('li');
                 listItem.className = 'p-3 bg-gray-50 rounded-md border flex justify-between items-center';
                 listItem.innerHTML = `
                     <div>
                         <p class="text-sm text-gray-500">${date}</p>
-                        <p>vs ${opponentName}</p>
+                        <p class="vs-line">vs </p>
                     </div>
                     <div class="text-right">
                         <p class="${resultColor}">${resultText}</p>
                         <a href="${linkUrl}" class="text-sm text-blue-600 hover:underline">${linkText}</a>
                     </div>
                 `;
+
+                // 対戦相手名（ユーザー入力を含む）はtextContentで安全に挿入する
+                const opponentNameEl = (opponentUid && opponentUid !== 'offline')
+                    ? Object.assign(document.createElement('a'), {
+                        href: `profile.html?uid=${encodeURIComponent(opponentUid)}`,
+                        className: 'font-semibold text-blue-600 hover:underline',
+                        textContent: opponentProfile?.nickname || 'ゲスト',
+                    })
+                    : Object.assign(document.createElement('span'), {
+                        className: 'font-semibold',
+                        textContent: opponentProfile?.nickname || 'オフライン',
+                    });
+                listItem.querySelector('.vs-line').appendChild(opponentNameEl);
+
                 historyList.appendChild(listItem);
             }
             
@@ -595,9 +606,11 @@
                     }
 
                     userDiv.innerHTML = `
-                        <a href="profile.html?uid=${userId}" class="font-semibold text-blue-600 hover:underline">${nickname}</a>
+                        <a href="profile.html?uid=${encodeURIComponent(userId)}" class="font-semibold text-blue-600 hover:underline"></a>
                         <div>${followButtonHtml}</div>
                     `;
+                    // ニックネーム（ユーザー入力）はtextContentで安全に挿入する
+                    userDiv.querySelector('a').textContent = nickname;
                     userListContainer.appendChild(userDiv);
                 }
 
