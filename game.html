@@ -77,7 +77,7 @@
     <div id="header-placeholder"></div>
 
     <main id="game-container" class="w-full max-w-xl mx-auto py-8 px-4 hidden">
-        <p class="text-center text-xs text-gray-500 mb-2">Game ID: <span id="game-id"></span></p>
+        <p id="game-id-line" class="text-center text-xs text-gray-500 mb-2">Game ID: <span id="game-id"></span></p>
 
         <!-- ゲーム情報パネル -->
         <div id="info-panel" class="bg-white rounded-lg shadow-md p-4 mb-4 text-center">
@@ -179,14 +179,18 @@
         import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
         import { requireAuthAndNickname } from './js/authGuard.js';
 
+        // ローカル対局（CPUモード・オフラインのホットシート対戦）用: ゲームロジックを直接インポート
+        import { simulateTurn, checkWinCondition, normalizeBoard, maxSummonsFor, computeTimersAfterTurn } from './js/gameLogic.js';
+
         const submitMove = httpsCallable(functions, 'submitMove');
         const claimTimeout = httpsCallable(functions, 'claimTimeout');
 
         // ニックネームなどユーザー入力を含む値を安全にリンク付きで表示するヘルパー
+        // CPUモードでは uid が 'human' / 'cpu' の疑似IDになるため、リンクを生成しない
         function renderPlayerNameLink(el, uid, nickname, fallbackText) {
             el.textContent = '';
-            if (!uid) {
-                el.textContent = fallbackText;
+            if (!uid || uid === 'human' || uid === 'cpu') {
+                el.textContent = nickname || fallbackText;
                 return;
             }
             const link = document.createElement('a');
@@ -213,13 +217,26 @@
                 this.lastMoveDest = null;
                 this.actionMode = 'MOVE';
                 this.gameId = null;
-                this.mode = 'spectate'; // 'play' or 'spectate'
+                this.mode = 'spectate'; // 'play' | 'spectate' | 'cpu'
                 this.dbRef = null;
                 this.turnStartBoardState = null;
                 this.turnActions = [];
                 this.activeTimerTurnNumber = -1;
                 this.serverTimeOffset = 0;
                 this.playerProfiles = { white: null, black: null };
+
+                // CPUモード用プロパティ
+                this.cpuColor = null;       // 'white' | 'black'
+                this.humanColor = null;     // 'white' | 'black'
+                this.cpuLevel = 2;          // 1 | 2 | 3
+                this.cpuWorker = null;      // Worker インスタンス（一度作成して使い回す）
+                this.cpuRequestId = 0;      // リクエストID（古い返答を無視するため）
+                this.cpuThinking = false;   // CPU思考中フラグ（ボードクリックを無効化）
+                this.cpuPersisted = false;  // true: Firebaseに保存されるCPU対局（ログイン済み）
+
+                // ローカル対局（'cpu'モードで未ログイン、または'local'モード）は
+                // Firebaseを使わずブラウザ内だけで完結する。
+                this.isLocalOnlyGame = false;
 
                 this.bindDOMElements();
                 this.addEventListeners();
@@ -230,6 +247,7 @@
                     container: document.getElementById('game-container'),
                     loadingContainer: document.getElementById('loading-container'),
                     gameId: document.getElementById('game-id'),
+                    gameIdLine: document.getElementById('game-id-line'),
                     board: document.getElementById('board'),
                     turnIndicator: document.getElementById('turn-indicator'),
                     playerColorIndicator: document.getElementById('player-color-indicator'),
@@ -255,20 +273,47 @@
                     modalBtn: document.getElementById('modal-button'),
                     gameIdDisplayFooter: document.getElementById('game-id-display-footer'),
                     copyButtonFooter: document.getElementById('copy-button-footer'),
-                    copyFeedbackFooter: document.getElementById('copy-feedback-footer')
+                    copyFeedbackFooter: document.getElementById('copy-feedback-footer'),
+                    copyIdSection: document.getElementById('copy-id-section'),
                 };
             }
 
             async init() {
                 const urlParams = new URLSearchParams(window.location.search);
-                this.gameId = urlParams.get('id');
-                this.mode = urlParams.get('mode') === 'play' ? 'play' : 'spectate';
+                const modeParam = urlParams.get('mode');
+                const idParam = urlParams.get('id');
+
+                // ローカルのホットシート対戦（未ログインのオフライン対戦）: ログイン不要、Firebase 不使用
+                if (modeParam === 'local') {
+                    this.mode = 'local';
+                    this.isLocalOnlyGame = true;
+                    this.initLocalOfflineMode(urlParams);
+                    return;
+                }
+
+                // CPUモードのうち、対局IDが無いもの = 未ログインのローカル対局（Firebase 不使用）
+                if (modeParam === 'cpu' && !idParam) {
+                    this.mode = 'cpu';
+                    this.isLocalOnlyGame = true;
+                    this.cpuPersisted = false;
+                    this.initCpuMode(urlParams);
+                    return;
+                }
+
+                this.gameId = idParam;
+                if (modeParam === 'cpu') {
+                    // CPUモードのうち、対局IDがあるもの = ログイン済みで保存されるCPU対局
+                    this.mode = 'cpu';
+                    this.cpuPersisted = true;
+                } else {
+                    this.mode = modeParam === 'play' ? 'play' : 'spectate';
+                }
 
                 if (!this.gameId) {
                     this.dom.loadingContainer.textContent = 'エラー: 対局IDが指定されていません。';
                     return;
                 }
-                
+
                 onAuthStateChanged(auth, async (user) => {
                     if (this.mode === 'spectate') {
                         // 観戦モードは未ログインでも閲覧できる仕様のため対象外
@@ -279,6 +324,170 @@
                     if (!(await requireAuthAndNickname(user, database))) return;
                     this.loadGameData(user);
                 });
+            }
+
+            // URLパラメータから時間設定を読み取る共通ヘルパー。
+            // 対局作成フォームで設定された内容をローカル対局(CPU/オフライン)にも反映する。
+            parseTimeControlParams(urlParams) {
+                const enabled = urlParams.get('timeEnabled') === '1';
+                if (!enabled) return { enabled: false, timeLimit: 0, delay: 0 };
+
+                const timeLimitMinutes = parseInt(urlParams.get('timeLimit')) || 5;
+                const delay = parseInt(urlParams.get('delay')) || 0;
+                return {
+                    enabled: true,
+                    timeLimit: Math.max(1, timeLimitMinutes) * 60,
+                    delay: Math.max(0, delay),
+                };
+            }
+
+            /**
+             * CPUモード（未ログイン・ローカル対局）の初期化。
+             * URLパラメータ: level=1|2|3, size=3..8, color=white|black|random,
+             *                timeEnabled=0|1, timeLimit=分, delay=秒
+             */
+            initCpuMode(urlParams) {
+                // パラメータ解析
+                const levelParam = parseInt(urlParams.get('level')) || 2;
+                this.cpuLevel = (levelParam >= 1 && levelParam <= 3) ? levelParam : 2;
+
+                const sizeParam = parseInt(urlParams.get('size')) || 4;
+                const boardSize = Math.max(3, Math.min(8, sizeParam));
+
+                const colorParam = urlParams.get('color') || 'random';
+                const resolvedColor = colorParam === 'random'
+                    ? (Math.random() < 0.5 ? 'white' : 'black')
+                    : (colorParam === 'white' ? 'white' : 'black');
+                this.humanColor = resolvedColor;
+                this.cpuColor = resolvedColor === 'white' ? 'black' : 'white';
+
+                const timeControl = this.parseTimeControlParams(urlParams);
+
+                // CPUレベル名（表示用）
+                const levelNames = { 1: 'よわい', 2: 'ふつう', 3: 'つよい' };
+                const cpuNickname = `CPU (${levelNames[this.cpuLevel] || 'ふつう'})`;
+
+                // プレイヤー情報設定
+                const humanNickname = 'あなた';
+                this.playerProfiles.white = { nickname: this.humanColor === 'white' ? humanNickname : cpuNickname };
+                this.playerProfiles.black = { nickname: this.humanColor === 'black' ? humanNickname : cpuNickname };
+
+                const maxSummons = maxSummonsFor(boardSize);
+
+                // 空の盤面（denormalized: 空セルは0）を生成
+                const emptyBoard = [];
+                for (let r = 0; r < boardSize; r++) {
+                    const row = [];
+                    for (let c = 0; c < boardSize; c++) {
+                        row.push(0);
+                    }
+                    emptyBoard.push(row);
+                }
+
+                // 初期 gameData を構築
+                this.gameId = 'cpu-local';
+                this.gameData = {
+                    gameId: 'cpu-local',
+                    meta: {
+                        status: 'in_progress',
+                        players: {
+                            white: this.humanColor === 'white' ? 'human' : 'cpu',
+                            black: this.humanColor === 'black' ? 'human' : 'cpu',
+                        },
+                        winner: null,
+                        winReason: null,
+                        gameSettings: {
+                            boardSize,
+                            maxSummons,
+                            timeControl,
+                        },
+                        createdAt: Date.now(),
+                        updatedAt: Date.now(),
+                    },
+                    moves: [{
+                        turnNumber: 0,
+                        currentPlayer: 'white', // 白が先手
+                        board: emptyBoard,
+                        summonCounts: { white: 0, black: 0 },
+                        timers: { white: timeControl.timeLimit, black: timeControl.timeLimit },
+                        timestamp: Date.now(),
+                    }],
+                };
+
+                // Game ID 行と共有セクションをCPUモードでは非表示にする
+                if (this.dom.gameIdLine) this.dom.gameIdLine.style.display = 'none';
+                if (this.dom.copyIdSection) this.dom.copyIdSection.style.display = 'none';
+
+                this.setupCpuWorker();
+
+                // 通常のレンダリングパスに入る
+                this.handleDataUpdate(this.gameData);
+            }
+
+            /**
+             * ローカルのオフライン対戦（未ログイン・2人ホットシート）の初期化。
+             * URLパラメータ: size=3..8, timeEnabled=0|1, timeLimit=分, delay=秒
+             */
+            initLocalOfflineMode(urlParams) {
+                const sizeParam = parseInt(urlParams.get('size')) || 4;
+                const boardSize = Math.max(3, Math.min(8, sizeParam));
+                const timeControl = this.parseTimeControlParams(urlParams);
+                const maxSummons = maxSummonsFor(boardSize);
+
+                this.playerProfiles.white = { nickname: 'プレイヤー1 (白)' };
+                this.playerProfiles.black = { nickname: 'プレイヤー2 (黒)' };
+
+                const emptyBoard = [];
+                for (let r = 0; r < boardSize; r++) {
+                    const row = [];
+                    for (let c = 0; c < boardSize; c++) {
+                        row.push(0);
+                    }
+                    emptyBoard.push(row);
+                }
+
+                this.gameId = 'local-offline';
+                this.gameData = {
+                    gameId: 'local-offline',
+                    meta: {
+                        status: 'in_progress',
+                        players: { white: 'human', black: 'human' },
+                        winner: null,
+                        winReason: null,
+                        gameSettings: {
+                            boardSize,
+                            maxSummons,
+                            timeControl,
+                        },
+                        createdAt: Date.now(),
+                        updatedAt: Date.now(),
+                    },
+                    moves: [{
+                        turnNumber: 0,
+                        currentPlayer: 'white',
+                        board: emptyBoard,
+                        summonCounts: { white: 0, black: 0 },
+                        timers: { white: timeControl.timeLimit, black: timeControl.timeLimit },
+                        timestamp: Date.now(),
+                    }],
+                };
+
+                if (this.dom.gameIdLine) this.dom.gameIdLine.style.display = 'none';
+                if (this.dom.copyIdSection) this.dom.copyIdSection.style.display = 'none';
+
+                this.handleDataUpdate(this.gameData);
+            }
+
+            /** CPU用のWorkerを一度だけ生成する。 */
+            setupCpuWorker() {
+                if (this.cpuWorker) return;
+                this.cpuWorker = new Worker('js/ai/aiWorker.js', { type: 'module' });
+                this.cpuWorker.onmessage = (event) => this.handleWorkerMessage(event.data);
+                this.cpuWorker.onerror = (err) => {
+                    console.error('AI Worker error:', err);
+                    this.cpuThinking = false;
+                    this.setMessage('CPUエラーが発生しました。');
+                };
             }
 
             loadGameData(user) {
@@ -294,7 +503,7 @@
                         const gameData = snapshot.val();
                         const uid = user ? user.uid : null;
 
-                        if (this.mode === 'play') {
+                        if (this.mode === 'play' || (this.mode === 'cpu' && this.cpuPersisted)) {
                             if (!uid) {
                                 this.dom.loadingContainer.textContent = 'エラー: この対局をプレイするにはログインが必要です。';
                                 this.dom.container.classList.add('hidden');
@@ -325,8 +534,38 @@
                 const wasFirstLoad = !this.gameData;
                 this.gameData = data;
 
+                // Bug2修正: CPUモードで、確定済み状態が人間のターンを示している場合は
+                // cpuThinking を即座にリセットして最初のレンダリングからUI操作を有効化する。
+                // （submitCpuMove の await 中に onValue が発火し、cpuThinking=true のまま
+                //   レンダリングされてトグルが隠れる問題を防ぐ）
+                if (this.mode === 'cpu' && this.gameData.meta?.status === 'in_progress') {
+                    const rawMoves = this.gameData.moves;
+                    if (rawMoves) {
+                        const movesArr = Array.isArray(rawMoves) ? rawMoves : Object.values(rawMoves);
+                        const latestMove = movesArr[movesArr.length - 1];
+                        if (latestMove && latestMove.currentPlayer === this.humanColor) {
+                            this.cpuThinking = false;
+                        }
+                    }
+                }
+
                 // 初回読み込み時にプレイヤー情報を取得
-                if (wasFirstLoad) {
+                // ローカル対局(CPU/オフライン)では init 時に既に設定済みのためスキップ
+                if (wasFirstLoad && this.mode === 'cpu' && this.cpuPersisted) {
+                    // 保存されるCPU対局: gameSettings.cpu からCPUの色・強さを復元し、
+                    // 人間側のプロフィールだけFirebaseから取得、CPU側は合成する。
+                    const cpuMeta = this.gameData.meta.gameSettings.cpu || { level: 2, color: 'black' };
+                    this.cpuLevel = cpuMeta.level;
+                    this.cpuColor = cpuMeta.color;
+                    this.humanColor = this.cpuColor === 'white' ? 'black' : 'white';
+
+                    const levelNames = { 1: 'よわい', 2: 'ふつう', 3: 'つよい' };
+                    const humanUid = this.gameData.meta.players[this.humanColor];
+                    this.playerProfiles[this.humanColor] = await this.fetchUserProfile(humanUid);
+                    this.playerProfiles[this.cpuColor] = { nickname: `CPU (${levelNames[this.cpuLevel] || 'ふつう'})` };
+
+                    this.setupCpuWorker();
+                } else if (wasFirstLoad && !this.isLocalOnlyGame) {
                     const { white: whiteUid, black: blackUid } = this.gameData.meta.players;
                     if (whiteUid) {
                         this.playerProfiles.white = await this.fetchUserProfile(whiteUid);
@@ -337,12 +576,12 @@
                         this.playerProfiles.black = this.playerProfiles.white;
                     }
                 }
-                
+
                 if (this.dom.container.classList.contains('hidden')) {
                      this.dom.loadingContainer.style.display = 'none';
                      this.dom.container.classList.remove('hidden');
                 }
-                
+
                 // 常に最新の状態を読み込むように修正
                 this.loadLatestState();
 
@@ -355,6 +594,14 @@
                     // 繰り返し表示されないようにUIの状態を更新
                     this.uiGameState = 'ENDED';
                 }
+
+                // CPUモード: ゲーム進行中かつCPUの手番であればCPUに思考させる
+                if (this.mode === 'cpu' && this.gameData.meta.status === 'in_progress') {
+                    const latestMove = this.gameData.moves[this.gameData.moves.length - 1];
+                    if (latestMove.currentPlayer === this.cpuColor) {
+                        this.triggerCpuTurn();
+                    }
+                }
             }
 
             loadLatestState() {
@@ -366,6 +613,14 @@
 
                 // ゲームが既に終了している場合、UIの状態をリセットせずに終了する
                 if (this.gameData.meta.status === 'completed') {
+                    // Bug4修正: 最終手の盤面を表示するために viewingTurnNumber を最新手に合わせる。
+                    // normalization は下の行で行われるため、ここで配列化して長さを求める。
+                    const completedMoves = this.gameData.moves
+                        ? (Array.isArray(this.gameData.moves) ? this.gameData.moves : Object.values(this.gameData.moves))
+                        : [];
+                    if (completedMoves.length > 0) {
+                        this.viewingTurnNumber = completedMoves.length - 1;
+                    }
                     this.render(); // 盤面の再描画のみ行う
                     return;
                 }
@@ -533,20 +788,32 @@
                 const whiteNickname = whiteProfile?.nickname || 'ゲスト';
                 const blackNickname = blackProfile?.nickname || (blackUid === 0 ? '対戦相手待ち' : 'ゲスト');
 
-                renderPlayerNameLink(document.getElementById('white-player-name'), whiteUid, whiteNickname, 'プレイヤー1');
-                renderPlayerNameLink(document.getElementById('black-player-name'), blackUid, blackNickname, 'プレイヤー2');
+                // 保存されるCPU対局では white/black が同一uid(人間)のため、CPU側は人間のプロフィールへリンクさせない
+                const whiteIsCpuSlot = this.mode === 'cpu' && this.cpuPersisted && this.cpuColor === 'white';
+                const blackIsCpuSlot = this.mode === 'cpu' && this.cpuPersisted && this.cpuColor === 'black';
+                renderPlayerNameLink(document.getElementById('white-player-name'), whiteIsCpuSlot ? null : whiteUid, whiteNickname, 'プレイヤー1');
+                renderPlayerNameLink(document.getElementById('black-player-name'), blackIsCpuSlot ? null : blackUid, blackNickname, 'プレイヤー2');
 
-                const myId = auth.currentUser ? auth.currentUser.uid : null;
-                // オンライン対戦の場合のみプレイヤーカラーを表示
-                if (this.mode === 'play' && myId && this.gameData.meta.players.white !== this.gameData.meta.players.black) {
-                    const players = this.gameData.meta.players;
-                    if (myId === players.white) {
+                // CPUモードでは humanColor から表示を決定する
+                if (this.mode === 'cpu') {
+                    if (this.humanColor === 'white') {
                         this.dom.playerColorIndicator.textContent = 'あなたは先手 (白) です';
-                    } else if (myId === players.black) {
+                    } else {
                         this.dom.playerColorIndicator.textContent = 'あなたは後手 (黒) です';
                     }
                 } else {
-                    this.dom.playerColorIndicator.textContent = '';
+                    const myId = auth.currentUser ? auth.currentUser.uid : null;
+                    // オンライン対戦の場合のみプレイヤーカラーを表示
+                    if (this.mode === 'play' && myId && this.gameData.meta.players.white !== this.gameData.meta.players.black) {
+                        const players = this.gameData.meta.players;
+                        if (myId === players.white) {
+                            this.dom.playerColorIndicator.textContent = 'あなたは先手 (白) です';
+                        } else if (myId === players.black) {
+                            this.dom.playerColorIndicator.textContent = 'あなたは後手 (黒) です';
+                        }
+                    } else {
+                        this.dom.playerColorIndicator.textContent = '';
+                    }
                 }
 
                 if (!timeControl.enabled) {
@@ -598,7 +865,12 @@
                 this.dom.whiteSummon.textContent = `${summonCounts.white} / ${maxSummons}`;
                 this.dom.blackSummon.textContent = `${summonCounts.black} / ${maxSummons}`;
                 
-                const isPlayerTurn = this.mode === 'play' && isViewingLatest && isGameInProgress;
+                // CPUモード: 人間の手番のときだけ操作可能。localモード(ホットシート)は常にどちらの手番でも操作可能
+                const isPlayerTurn = (
+                    this.mode === 'play' ||
+                    this.mode === 'local' ||
+                    (this.mode === 'cpu' && !this.cpuThinking && latestState.currentPlayer === this.humanColor)
+                ) && isViewingLatest && isGameInProgress;
                 const actionTaken = this.uiGameState === 'CONTINUOUS_MOVE' || this.uiGameState === 'ACTION_TAKEN' || (this.uiGameState === 'PIECE_SELECTED' && this.lastMoveDest !== null);
                 
                 this.dom.endTurnBtn.classList.toggle('hidden', !isPlayerTurn || !actionTaken);
@@ -689,21 +961,36 @@
             }
 
             handleBoardClick(e) {
-                // --- オンライン対戦用の手番チェック ---
+                // CPUが思考中はクリックを無視
+                if (this.cpuThinking) return;
+
+                // --- 手番チェック ---
                 const latestState = this.gameData.moves[this.gameData.moves.length - 1];
                 const currentPlayerColor = latestState.currentPlayer;
-                const currentPlayerId = this.gameData.meta.players[currentPlayerColor];
-                const myId = auth.currentUser.uid;
 
-                // 自分の手番でなければ、いかなる操作も受け付けない
-                if (this.mode === 'play' && myId !== currentPlayerId) {
-                    this.setMessage('相手のターンです。');
-                    return;
+                if (this.mode === 'cpu') {
+                    // CPUモード: 人間の手番でなければ受け付けない
+                    if (currentPlayerColor !== this.humanColor) {
+                        this.setMessage('相手のターンです。');
+                        return;
+                    }
+                } else if (this.mode === 'play') {
+                    // オンライン対戦モード: 自分のUID一致チェック
+                    const currentPlayerId = this.gameData.meta.players[currentPlayerColor];
+                    const myId = auth.currentUser ? auth.currentUser.uid : null;
+                    if (myId !== currentPlayerId) {
+                        this.setMessage('相手のターンです。');
+                        return;
+                    }
                 }
+                // 'local'モード(未ログインのホットシート対戦)は同一端末を2人で共有するため
+                // 手番の主体チェックを行わない（currentPlayerColorの手番なら誰でも操作可）
 
                 const cell = e.target.closest('.cell');
                 const isViewingLatest = this.viewingTurnNumber === this.gameData.moves.length - 1;
-                if (!cell || this.gameData.meta.status !== 'in_progress' || !isViewingLatest || this.mode !== 'play') return;
+                // CPU/localモードでも 'play' と同じ操作フローを使う
+                const isInteractiveMode = this.mode === 'play' || this.mode === 'cpu' || this.mode === 'local';
+                if (!cell || this.gameData.meta.status !== 'in_progress' || !isViewingLatest || !isInteractiveMode) return;
 
                 if (this.uiGameState === 'ACTION_TAKEN') {
                     this.setMessage('ターンを終了するか、キャンセルしてください。');
@@ -861,11 +1148,16 @@
 
                 if (this.timerInterval) clearInterval(this.timerInterval);
 
+                // ローカル対局(未ログインのCPU対局・オフラインのホットシート対戦): ローカルでターンをコミットする
+                if (this.isLocalOnlyGame) {
+                    this.commitTurnLocally(this.turnActions);
+                    return;
+                }
+
                 const lastMove = this.gameData.moves[this.gameData.moves.length - 1];
 
                 this.dom.endTurnBtn.disabled = true;
                 this.dom.cancelBtn.disabled = true;
-                this.setMessage('サーバーに送信中...');
 
                 try {
                     // 実際の盤面更新・勝敗判定はすべてサーバー側(submitMove)で検証・確定される。
@@ -884,6 +1176,196 @@
                 } finally {
                     this.dom.endTurnBtn.disabled = false;
                     this.dom.cancelBtn.disabled = false;
+                }
+            }
+
+            /**
+             * ローカル対局(未ログインのCPU対局・オフラインのホットシート対戦)用:
+             * ターンをローカルの gameData に確定させる。
+             * simulateTurn でアクションを検証→ moves に追記→勝敗判定→ handleDataUpdate を呼ぶ。
+             * @param {object[]} actions - turnActions 形式のアクション配列
+             */
+            commitTurnLocally(actions) {
+                const lastMove = this.gameData.moves[this.gameData.moves.length - 1];
+                const { boardSize, maxSummons, timeControl } = this.gameData.meta.gameSettings;
+
+                // normalizeBoard して simulateTurn に渡す（simulateTurn は内部で denormalize して返す）
+                const normalizedBoard = normalizeBoard(lastMove.board, boardSize);
+                const stateForSim = {
+                    board: normalizedBoard,
+                    summonCounts: { ...lastMove.summonCounts },
+                    currentPlayer: lastMove.currentPlayer,
+                    boardSize,
+                };
+
+                let result;
+                try {
+                    result = simulateTurn(stateForSim, actions);
+                } catch (err) {
+                    this.setMessage(err.message || '不正な手です。');
+                    this.resetUncommittedChanges();
+                    this.viewingTurnNumber = this.gameData.moves.length - 1;
+                    this.render();
+                    return;
+                }
+
+                // 次のプレイヤーを決定
+                const nextPlayer = lastMove.currentPlayer === 'white' ? 'black' : 'white';
+
+                // 時間設定が有効な場合、手番プレイヤーの残り時間をローカル時刻で計算する
+                const newTimers = computeTimersAfterTurn(lastMove, timeControl, lastMove.currentPlayer, Date.now());
+
+                // 新しい moves エントリを追加
+                const newMove = {
+                    turnNumber: lastMove.turnNumber + 1,
+                    currentPlayer: nextPlayer,
+                    board: result.board,         // simulateTurn は denormalized board を返す
+                    summonCounts: result.summonCounts,
+                    timers: newTimers,
+                    timestamp: Date.now(),
+                };
+                this.gameData.moves.push(newMove);
+
+                // 勝敗判定: 次のプレイヤーが手を持たないか確認
+                // checkWinCondition は board が正規化済みであることを期待するので normalizeBoard する
+                const nextNormalizedBoard = normalizeBoard(result.board, boardSize);
+                const stateForWin = {
+                    board: nextNormalizedBoard,
+                    summonCounts: result.summonCounts,
+                    currentPlayer: nextPlayer,
+                    boardSize,
+                };
+                if (checkWinCondition(stateForWin, { maxSummons, boardSize })) {
+                    // 勝者は手を打ったプレイヤー（= lastMove.currentPlayer）
+                    const winner = lastMove.currentPlayer;
+                    const loser = nextPlayer;
+                    const winnerLabel = winner === 'white' ? '白' : '黒';
+                    const loserLabel = loser === 'white' ? '白' : '黒';
+                    // CPUモードでは勝者がプレイヤーかCPUかを併記する
+                    const winnerSuffix = this.mode === 'cpu' ? `（${winner === this.humanColor ? 'あなた' : 'CPU'}）` : '';
+                    this.gameData.meta.status = 'completed';
+                    this.gameData.meta.winner = winner;
+                    this.gameData.meta.winReason = `${winnerLabel}${winnerSuffix}の勝利！${loserLabel}に合法手がなくなりました。`;
+                    this.gameData.meta.updatedAt = Date.now();
+                }
+
+                // handleDataUpdate 経由で再描画（CPUターン起動も含む）
+                this.handleDataUpdate(this.gameData);
+            }
+
+            /**
+             * ローカル対局(未ログイン)で持ち時間切れが発生した際に、
+             * サーバー(claimTimeout)を使わずその場で勝敗を確定させる。
+             */
+            claimLocalTimeout() {
+                if (this.gameData.meta.status !== 'in_progress') return;
+                const latestMove = this.gameData.moves[this.gameData.moves.length - 1];
+                const loser = latestMove.currentPlayer;
+                const winner = loser === 'white' ? 'black' : 'white';
+                const winnerLabel = winner === 'white' ? '白' : '黒';
+                const loserLabel = loser === 'white' ? '白' : '黒';
+                const winnerSuffix = this.mode === 'cpu' ? `（${winner === this.humanColor ? 'あなた' : 'CPU'}）` : '';
+
+                this.gameData.meta.status = 'completed';
+                this.gameData.meta.winner = winner;
+                this.gameData.meta.winReason = `${loserLabel}の時間切れです。${winnerLabel}${winnerSuffix}の勝利！`;
+                this.gameData.meta.updatedAt = Date.now();
+
+                this.handleDataUpdate(this.gameData);
+            }
+
+            /**
+             * CPUの手番を Worker に依頼して、返答が来たらローカルコミットする。
+             * 最低600msの待機時間を設けてゲーム感を演出する。
+             */
+            triggerCpuTurn() {
+                if (this.cpuThinking) return; // 既に思考中なら二重起動しない
+                this.cpuThinking = true;
+                this.setMessage('CPUが考えています…');
+                this.render(); // ボード操作ボタンを非表示にするため再描画
+
+                const latestMove = this.gameData.moves[this.gameData.moves.length - 1];
+                const { boardSize } = this.gameData.meta.gameSettings;
+                const requestId = ++this.cpuRequestId;
+                const sendTime = Date.now();
+
+                this.cpuWorker.postMessage({
+                    requestId,
+                    state: {
+                        board: latestMove.board,   // denormalized でも Worker 側で normalize する
+                        summonCounts: latestMove.summonCounts,
+                        currentPlayer: latestMove.currentPlayer,
+                        boardSize,
+                    },
+                    level: this.cpuLevel,
+                });
+
+                // handleWorkerMessage 内で requestId チェックして処理する
+                // sendTime は closure で参照される
+                this._cpuSendTime = sendTime;
+            }
+
+            /**
+             * Worker からの返答を処理する。
+             */
+            handleWorkerMessage(data) {
+                const { requestId, turn, info, error } = data;
+
+                // 古いリクエストの返答は無視する
+                if (requestId !== this.cpuRequestId) return;
+
+                const elapsed = Date.now() - (this._cpuSendTime || Date.now());
+                const minDelay = 600; // ms: CPU が即座に返しても最低これだけ待つ
+                const remainingDelay = Math.max(0, minDelay - elapsed);
+
+                setTimeout(async () => {
+                    if (error) {
+                        this.cpuThinking = false;
+                        console.error('AI Worker returned error:', error);
+                        this.setMessage('CPUエラーが発生しました: ' + error);
+                        this.render();
+                        return;
+                    }
+
+                    if (!turn) {
+                        // 合法手がない = CPU の負け（通常は checkWinCondition で先に検知されるはず）
+                        this.cpuThinking = false;
+                        this.setMessage('CPUに合法手がありません。');
+                        this.render();
+                        return;
+                    }
+
+                    // CPU のアクションを確定させる
+                    this.setMessage(''); // 「CPUが考えています…」を消す
+                    if (this.cpuPersisted) {
+                        // 保存されるCPU対局: 人間の手と同じくsubmitMoveでサーバーに送信する
+                        // (white/blackとも同一uidが操作しているため、CPUの色でも送信できる)。
+                        // サーバー送信が終わるまではcpuThinkingを維持し、二重起動を防ぐ。
+                        await this.submitCpuMove(turn.actions);
+                        this.cpuThinking = false;
+                    } else {
+                        this.cpuThinking = false;
+                        this.commitTurnLocally(turn.actions);
+                    }
+                }, remainingDelay);
+            }
+
+            /**
+             * 保存されるCPU対局用: CPUが選んだ手をsubmitMove経由でサーバーに送信する。
+             * 成功すればonValueの購読を通じて確定済みの状態が自動的に反映される。
+             */
+            async submitCpuMove(actions) {
+                const lastMove = this.gameData.moves[this.gameData.moves.length - 1];
+                try {
+                    await submitMove({
+                        gameId: this.gameId,
+                        turnNumber: lastMove.turnNumber,
+                        actions,
+                    });
+                } catch (error) {
+                    console.error('Failed to submit CPU move:', error);
+                    this.setMessage('CPUの手の送信に失敗しました。');
+                    this.render();
                 }
             }
             
@@ -1015,9 +1497,12 @@
                     // --- 時間切れチェック ---
                     if (currentRemainingTime <= 0) {
                         clearInterval(this.timerInterval);
-                        // 時間切れの確定はサーバー側(claimTimeout)が検証する。
-                        // どちらのプレイヤーが呼んでも安全（後勝ちはサーバー側で弾かれる）。
-                        if (this.mode === 'play') {
+                        if (this.isLocalOnlyGame) {
+                            // ローカル対局はサーバーを介さずその場で勝敗を確定させる
+                            this.claimLocalTimeout();
+                        } else if (this.mode === 'play' || (this.mode === 'cpu' && this.cpuPersisted)) {
+                            // 時間切れの確定はサーバー側(claimTimeout)が検証する。
+                            // どちらのプレイヤーが呼んでも安全（後勝ちはサーバー側で弾かれる）。
                             claimTimeout({ gameId: this.gameId }).catch((error) => {
                                 console.warn('claimTimeout failed (may already be resolved):', error);
                             });
@@ -1057,7 +1542,8 @@
             }
 
             async fetchUserProfile(uid) {
-                if (!uid || uid === 0) return null;
+                // 疑似UID（CPUモード用）はFirebaseにアクセスしない
+                if (!uid || uid === 0 || uid === 'human' || uid === 'cpu') return null;
                 const userRef = ref(database, `users/${uid}/profile`);
                 const snapshot = await get(userRef);
                 return snapshot.exists() ? snapshot.val() : null;

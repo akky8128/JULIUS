@@ -33,6 +33,64 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
     });
     dropdown.addEventListener('click', e => e.stopPropagation());
 
+    // Bug5修正: ニックネーム/メニューUIの構築を再利用可能な関数に切り出す。
+    // julius:profile-updated イベントで再呼び出しすることでヘッダー表示を即時更新できる。
+    async function renderAuthStatus(user) {
+        const userProfileRef = ref(database, `users/${user.uid}/profile`);
+        const snapshot = await get(userProfileRef);
+        const userNickname = snapshot.exists() ? snapshot.val().nickname : null;
+
+        authStatusContainer.innerHTML = '';
+
+        const menuWrapper = document.createElement('div');
+        menuWrapper.className = 'relative';
+
+        const menuButton = document.createElement('button');
+        menuButton.id = 'user-menu-button';
+        // ニックネーム未設定の場合は黄色で「ニックネームを設定」と表示する
+        menuButton.className = `flex items-center font-bold focus:outline-none ${userNickname ? 'text-gray-700 hover:text-blue-600' : 'text-yellow-600 hover:text-yellow-700'}`;
+
+        // ニックネームはユーザー入力を含むためtextContentで安全に挿入する
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = userNickname || 'ニックネームを設定';
+        menuButton.appendChild(nameSpan);
+
+        const caret = document.createElement('i');
+        caret.className = 'fas fa-caret-down ml-1 text-xs';
+        menuButton.appendChild(caret);
+
+        const menuDropdown = document.createElement('div');
+        menuDropdown.id = 'user-menu-dropdown';
+        menuDropdown.className = 'hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-20';
+
+        const profileLink = document.createElement('a');
+        profileLink.href = `profile.html?uid=${encodeURIComponent(user.uid)}`;
+        profileLink.className = 'block px-4 py-3 hover:bg-gray-100 border-b text-gray-800';
+        profileLink.textContent = 'プロフィールを見る';
+
+        const logoutButton = document.createElement('button');
+        logoutButton.className = 'w-full text-left px-4 py-3 hover:bg-gray-100 text-red-600';
+        logoutButton.textContent = 'ログアウト';
+        logoutButton.addEventListener('click', () => {
+            signOut(auth).then(() => {
+                window.location.href = 'index.html';
+            }).catch(console.error);
+        });
+
+        menuDropdown.appendChild(profileLink);
+        menuDropdown.appendChild(logoutButton);
+        menuWrapper.appendChild(menuButton);
+        menuWrapper.appendChild(menuDropdown);
+        authStatusContainer.appendChild(menuWrapper);
+
+        menuButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdown.classList.add('hidden');
+            menuDropdown.classList.toggle('hidden');
+        });
+        menuDropdown.addEventListener('click', e => e.stopPropagation());
+    }
+
     onAuthStateChanged(auth, async (user) => {
         if (invitationsListener) invitationsListener();
         if (followNotificationsListener) followNotificationsListener();
@@ -40,58 +98,7 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
         latestFollowNotifications = {};
 
         if (user) {
-            const userProfileRef = ref(database, `users/${user.uid}/profile`);
-            const snapshot = await get(userProfileRef);
-            const userNickname = snapshot.exists() ? snapshot.val().nickname : null;
-
-            authStatusContainer.innerHTML = '';
-
-            const menuWrapper = document.createElement('div');
-            menuWrapper.className = 'relative';
-
-            const menuButton = document.createElement('button');
-            menuButton.id = 'user-menu-button';
-            menuButton.className = `flex items-center font-bold focus:outline-none ${userNickname ? 'text-gray-700 hover:text-blue-600' : 'text-yellow-600 hover:text-yellow-700'}`;
-
-            // ニックネームはユーザー入力を含むためtextContentで安全に挿入する
-            const nameSpan = document.createElement('span');
-            nameSpan.textContent = userNickname || 'ニックネームを設定';
-            menuButton.appendChild(nameSpan);
-
-            const caret = document.createElement('i');
-            caret.className = 'fas fa-caret-down ml-1 text-xs';
-            menuButton.appendChild(caret);
-
-            const menuDropdown = document.createElement('div');
-            menuDropdown.id = 'user-menu-dropdown';
-            menuDropdown.className = 'hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-20';
-
-            const profileLink = document.createElement('a');
-            profileLink.href = `profile.html?uid=${encodeURIComponent(user.uid)}`;
-            profileLink.className = 'block px-4 py-3 hover:bg-gray-100 border-b text-gray-800';
-            profileLink.textContent = 'プロフィールを見る';
-
-            const logoutButton = document.createElement('button');
-            logoutButton.className = 'w-full text-left px-4 py-3 hover:bg-gray-100 text-red-600';
-            logoutButton.textContent = 'ログアウト';
-            logoutButton.addEventListener('click', () => {
-                signOut(auth).then(() => {
-                    window.location.href = 'index.html';
-                }).catch(console.error);
-            });
-
-            menuDropdown.appendChild(profileLink);
-            menuDropdown.appendChild(logoutButton);
-            menuWrapper.appendChild(menuButton);
-            menuWrapper.appendChild(menuDropdown);
-            authStatusContainer.appendChild(menuWrapper);
-
-            menuButton.addEventListener('click', (e) => {
-                e.stopPropagation();
-                dropdown.classList.add('hidden');
-                menuDropdown.classList.toggle('hidden');
-            });
-            menuDropdown.addEventListener('click', e => e.stopPropagation());
+            await renderAuthStatus(user);
 
             const invitationsRef = ref(database, `invitations/${user.uid}`);
             invitationsListener = onValue(invitationsRef, (snapshot) => {
@@ -108,6 +115,12 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
             authStatusContainer.innerHTML = `<a href="profile.html" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm transition">ログイン</a>`;
             updateNotifications({}, {});
         }
+    });
+
+    // Bug5修正: プロフィール更新後にヘッダーのニックネームを即時反映させるためのイベントリスナー。
+    // profile.html の保存成功後に julius:profile-updated を dispatch する。
+    window.addEventListener('julius:profile-updated', () => {
+        if (auth.currentUser) renderAuthStatus(auth.currentUser);
     });
 }
 

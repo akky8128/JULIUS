@@ -34,6 +34,11 @@
         .toggle-checkbox:checked + .toggle-label {
             background-color: #4ade80;
         }
+        input[name="gameType"]:disabled + span,
+        label:has(input[name="gameType"]:disabled) {
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -52,9 +57,23 @@
                     <!-- 対戦形式 -->
                     <div>
                         <label class="block text-lg font-semibold text-gray-700">対戦形式</label>
+                        <div class="mt-2 flex flex-wrap gap-4">
+                            <label><input type="radio" name="gameType" value="online" id="game-type-online" class="mr-2">オンライン</label>
+                            <label><input type="radio" name="gameType" value="offline" id="game-type-offline" class="mr-2">オフライン</label>
+                            <label><input type="radio" name="gameType" value="cpu" id="game-type-cpu" checked class="mr-2">CPU対戦</label>
+                        </div>
+                        <p id="online-locked-message" class="hidden mt-2 text-sm text-black">
+                            オンライン対戦は、ログインとニックネームの設定が完了すると使用可能になります。
+                        </p>
+                    </div>
+
+                    <!-- CPUの強さ -->
+                    <div id="cpu-level-section">
+                        <label class="block text-lg font-semibold text-gray-700">CPUの強さ</label>
                         <div class="mt-2 flex space-x-4">
-                            <label><input type="radio" name="gameType" value="online" checked class="mr-2">オンライン</label>
-                            <label><input type="radio" name="gameType" value="offline" class="mr-2">オフライン</label>
+                            <label><input type="radio" name="cpuLevel" value="1" class="mr-2">よわい</label>
+                            <label><input type="radio" name="cpuLevel" value="2" checked class="mr-2">ふつう</label>
+                            <label><input type="radio" name="cpuLevel" value="3" class="mr-2">つよい</label>
                         </div>
                     </div>
 
@@ -124,8 +143,8 @@
 
         import { auth, database, functions } from './js/firebase.js';
         import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
-        import { requireAuthAndNickname } from './js/authGuard.js';
 
         const timeControlToggle = document.getElementById('time-control-toggle');
         const timeSettingsPanel = document.getElementById('time-settings-panel');
@@ -140,13 +159,45 @@
         const buttonText = document.getElementById('button-text');
         const buttonSpinner = document.getElementById('button-spinner');
 
+        const onlineRadio = document.getElementById('game-type-online');
+        const offlineRadio = document.getElementById('game-type-offline');
+        const cpuRadio = document.getElementById('game-type-cpu');
+        const onlineLockedMessage = document.getElementById('online-locked-message');
+        const cpuLevelSection = document.getElementById('cpu-level-section');
+        const playerColorSection = document.getElementById('player-color-section');
+
         let currentUser = null;
+        let canUseOnline = false;
+
+        function updateSectionVisibility() {
+            const gameType = form.querySelector('input[name="gameType"]:checked')?.value;
+            cpuLevelSection.classList.toggle('hidden', gameType !== 'cpu');
+            playerColorSection.classList.toggle('hidden', gameType === 'offline');
+        }
+
+        document.querySelectorAll('input[name="gameType"]').forEach(radio => {
+            radio.addEventListener('change', updateSectionVisibility);
+        });
+        updateSectionVisibility();
 
         onAuthStateChanged(auth, async (user) => {
-            if (!(await requireAuthAndNickname(user, database))) return;
-
             currentUser = user;
-            // ログイン済み・ニックネーム設定済みであればボタンを有効化
+            canUseOnline = false;
+
+            if (user) {
+                const nicknameSnap = await get(ref(database, `users/${user.uid}/profile/nickname`));
+                canUseOnline = nicknameSnap.exists() && !!nicknameSnap.val();
+            }
+
+            onlineRadio.disabled = !canUseOnline;
+            onlineLockedMessage.classList.toggle('hidden', canUseOnline);
+
+            // オンラインが選択された状態で使用不可になった場合はCPU対戦へフォールバック
+            if (!canUseOnline && onlineRadio.checked) {
+                cpuRadio.checked = true;
+                updateSectionVisibility();
+            }
+
             createButton.disabled = false;
         });
 
@@ -154,29 +205,53 @@
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            if (!currentUser) {
-                alert("ログイン認証が完了していません。");
+
+            const formData = new FormData(form);
+            const settings = Object.fromEntries(formData.entries());
+
+            if (settings.gameType === 'online' && !canUseOnline) {
+                alert('オンライン対戦を利用するには、ログインとニックネームの設定が必要です。');
                 return;
             }
-            
+
             createButton.disabled = true;
             buttonText.textContent = '作成中...';
             buttonSpinner.classList.remove('hidden');
 
-            const uid = currentUser.uid;
-            const formData = new FormData(form);
-            const settings = Object.fromEntries(formData.entries());
-            
             try {
-                const result = await createGame(settings);
-                const gameId = result.data.gameId;
+                const isPersisted = canUseOnline && (settings.gameType === 'online' || settings.gameType === 'offline' || settings.gameType === 'cpu');
 
-                // 成功したら、返ってきたgameIdを使って画面遷移
-                if (settings.gameType === 'offline') {
-                    window.location.href = `game.html?id=${gameId}&mode=play`;
+                if (isPersisted) {
+                    // ログイン・ニックネーム設定済み：サーバーに対局を作成し、保存される対局として遷移する
+                    const result = await createGame(settings);
+                    const gameId = result.data.gameId;
+
+                    if (settings.gameType === 'online') {
+                        window.location.href = `waiting.html?id=${gameId}`;
+                    } else if (settings.gameType === 'cpu') {
+                        window.location.href = `game.html?id=${gameId}&mode=cpu`;
+                    } else {
+                        window.location.href = `game.html?id=${gameId}&mode=play`;
+                    }
                 } else {
-                    window.location.href = `waiting.html?id=${gameId}`;
+                    // 未ログイン・ニックネーム未設定：保存されないローカル対局としてブラウザ内だけで開始する
+                    const params = new URLSearchParams();
+                    params.set('size', settings.boardSize);
+                    params.set('timeEnabled', settings['time-control-enabled'] === 'on' ? '1' : '0');
+                    if (settings['time-control-enabled'] === 'on') {
+                        params.set('timeLimit', settings.timeLimit);
+                        params.set('delay', settings.delay);
+                    }
+
+                    if (settings.gameType === 'cpu') {
+                        params.set('mode', 'cpu');
+                        params.set('level', settings.cpuLevel);
+                        params.set('color', settings.playerColor);
+                    } else {
+                        params.set('mode', 'local');
+                    }
+
+                    window.location.href = `game.html?${params.toString()}`;
                 }
             } catch (error) {
                 console.error("Game creation failed:", error);
@@ -187,20 +262,6 @@
             }
         });
 
-        const gameTypeRadios = document.querySelectorAll('input[name="gameType"]');
-        const playerColorSection = document.getElementById('player-color-section');
-
-        gameTypeRadios.forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                if (e.target.value === 'offline') {
-                    playerColorSection.classList.add('hidden');
-                } else {
-                    playerColorSection.classList.remove('hidden');
-                }
-            });
-        });
-
     </script>
 </body>
 </html>
-

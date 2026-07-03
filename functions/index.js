@@ -54,10 +54,27 @@ export const createGame = onCall(async (request) => {
 
   let players;
   let status;
+  let cpuSettings = null;
 
   if (settings.gameType === "offline") {
     players = {white: uid, black: uid};
     status = "in_progress";
+  } else if (settings.gameType === "cpu") {
+    const cpuLevel = Number(settings.cpuLevel);
+    if (![1, 2, 3].includes(cpuLevel)) {
+      throw new HttpsError("invalid-argument", "CPU level must be 1, 2, or 3.");
+    }
+    const playerColor = settings.playerColor;
+    if (!["white", "black", "random"].includes(playerColor)) {
+      throw new HttpsError("invalid-argument", "Invalid player color.");
+    }
+    const humanColor = playerColor === "random" ?
+      (Math.random() < 0.5 ? "white" : "black") :
+      playerColor;
+    const cpuColor = humanColor === "white" ? "black" : "white";
+    players = {white: uid, black: uid};
+    status = "in_progress";
+    cpuSettings = {level: cpuLevel, color: cpuColor};
   } else if (settings.gameType === "online") {
     const playerColor = settings.playerColor;
     if (!["white", "black", "random"].includes(playerColor)) {
@@ -92,6 +109,7 @@ export const createGame = onCall(async (request) => {
         boardSize,
         maxSummons: Math.floor(boardSize * boardSize / 2),
         timeControl: {enabled: timeControlEnabled, timeLimit, delay},
+        ...(cpuSettings ? {cpu: cpuSettings} : {}),
       },
       createdAt: now,
       updatedAt: now,
@@ -110,7 +128,7 @@ export const createGame = onCall(async (request) => {
   const db = admin.database();
   await db.ref(`/games/${gameId}`).set(gameData);
 
-  if (settings.gameType === "offline") {
+  if (settings.gameType === "offline" || settings.gameType === "cpu") {
     const updates = {};
     updates[`/users/${uid}/games/${gameId}`] = now;
     updates[`/users/${uid}/profile/gamesPlayed`] = admin.database.ServerValue.increment(1);

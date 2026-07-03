@@ -344,20 +344,40 @@
                     linkText = '対局に戻る';
                 }
 
-                if (meta.winner) {
-                    if ((meta.winner === 'white' && players.white === viewedUid) || (meta.winner === 'black' && players.black === viewedUid)) {
-                        resultText = '勝利'; resultColor = 'text-green-600 font-bold';
+                // Bug3修正: CPU対局の検出（gameSettings.cpu が存在する場合はCPU対局）
+                const cpuInfo = meta.gameSettings?.cpu;
+
+                if (cpuInfo) {
+                    // CPU対局: 勝敗はプレイヤーの色（=CPUの色の逆）と winner を比較して判定
+                    const humanColor = cpuInfo.color === 'white' ? 'black' : 'white';
+                    if (meta.winner) {
+                        if (meta.winner === humanColor) {
+                            resultText = '勝利'; resultColor = 'text-green-600 font-bold';
+                        } else {
+                            resultText = '敗北'; resultColor = 'text-red-600 font-bold';
+                        }
+                    } else if (meta.status === 'in_progress') {
+                        resultText = '対戦中'; resultColor = 'text-blue-500';
                     } else {
-                        resultText = '敗北'; resultColor = 'text-red-600 font-bold';
+                        resultText = '引き分け等';
                     }
-                } else if (meta.status === 'in_progress') {
-                    resultText = '対戦中'; resultColor = 'text-blue-500';
                 } else {
-                    resultText = '引き分け等';
+                    if (meta.winner) {
+                        if ((meta.winner === 'white' && players.white === viewedUid) || (meta.winner === 'black' && players.black === viewedUid)) {
+                            resultText = '勝利'; resultColor = 'text-green-600 font-bold';
+                        } else {
+                            resultText = '敗北'; resultColor = 'text-red-600 font-bold';
+                        }
+                    } else if (meta.status === 'in_progress') {
+                        resultText = '対戦中'; resultColor = 'text-blue-500';
+                    } else {
+                        resultText = '引き分け等';
+                    }
                 }
 
                 const date = new Date(game.timestamp).toLocaleString('ja-JP');
-                const opponentUid = players.white === viewedUid ? players.black : players.white;
+                // CPU対局では対戦相手のプロフィールをFirebaseから取得しない
+                const opponentUid = cpuInfo ? null : (players.white === viewedUid ? players.black : players.white);
                 const opponentProfile = opponentUid ? await fetchUserProfile(opponentUid) : { nickname: 'オフライン' };
 
                 const listItem = document.createElement('li');
@@ -374,16 +394,27 @@
                 `;
 
                 // 対戦相手名（ユーザー入力を含む）はtextContentで安全に挿入する
-                const opponentNameEl = (opponentUid && opponentUid !== 'offline')
-                    ? Object.assign(document.createElement('a'), {
+                // Bug3修正: CPU対局では「CPU (よわい/ふつう/つよい)」をリンクなしspanで表示
+                let opponentNameEl;
+                if (cpuInfo) {
+                    const cpuLevelNames = { 1: 'よわい', 2: 'ふつう', 3: 'つよい' };
+                    const levelName = cpuLevelNames[cpuInfo.level] || 'ふつう';
+                    opponentNameEl = Object.assign(document.createElement('span'), {
+                        className: 'font-semibold',
+                        textContent: `CPU (${levelName})`,
+                    });
+                } else if (opponentUid && opponentUid !== 'offline') {
+                    opponentNameEl = Object.assign(document.createElement('a'), {
                         href: `profile.html?uid=${encodeURIComponent(opponentUid)}`,
                         className: 'font-semibold text-blue-600 hover:underline',
                         textContent: opponentProfile?.nickname || 'ゲスト',
-                    })
-                    : Object.assign(document.createElement('span'), {
+                    });
+                } else {
+                    opponentNameEl = Object.assign(document.createElement('span'), {
                         className: 'font-semibold',
                         textContent: opponentProfile?.nickname || 'オフライン',
                     });
+                }
                 listItem.querySelector('.vs-line').appendChild(opponentNameEl);
 
                 historyList.appendChild(listItem);
@@ -499,6 +530,8 @@
             try {
                 await updateProfileFn(newProfile);
                 dom.saveFeedback.textContent = '保存しました！';
+                // Bug5修正: ヘッダーのニックネーム表示を即時更新するためイベントを発火する
+                window.dispatchEvent(new CustomEvent('julius:profile-updated'));
 
                 // 表示を更新
                 dom.nicknameDisplay.textContent = newProfile.nickname || 'ニックネーム未設定';

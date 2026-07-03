@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JuliUs. - ウケジャレイヤーオンライン</title>
-    <meta name="description" content="ボードゲーム「ウケジャレイヤー」をオンラインで対戦・観戦できるプラットフォーム、JuliUs.。">
+    <meta name="description" content="ウケジャレイヤーをオンラインで対戦・観戦">
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
     <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192x192.png">
@@ -13,12 +13,12 @@
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="JuliUs.">
     <meta property="og:title" content="JuliUs. - ウケジャレイヤーオンライン">
-    <meta property="og:description" content="ボードゲーム「ウケジャレイヤー」をオンラインで対戦・観戦できるプラットフォーム、JuliUs.。">
+    <meta property="og:description" content="ウケジャレイヤーをオンラインで対戦・観戦">
     <meta property="og:url" content="https://julius-online-a5984.web.app/index.html">
     <meta property="og:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="JuliUs. - ウケジャレイヤーオンライン">
-    <meta name="twitter:description" content="ボードゲーム「ウケジャレイヤー」をオンラインで対戦・観戦できるプラットフォーム、JuliUs.。">
+    <meta name="twitter:description" content="ウケジャレイヤーをオンラインで対戦・観戦">
     <meta name="twitter:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
     <!-- Tailwind CSSを読み込み -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -48,7 +48,7 @@
             </p>
         </section>
 
-        <!-- ゲーム説明セクション (ここを更新しました) -->
+        <!-- ゲーム説明セクション -->
         <section class="mt-16 bg-white p-8 md:p-12 rounded-lg shadow-lg">
             <h3 class="text-3xl font-bold mb-6 text-center">ゲームのルール</h3>
             
@@ -117,9 +117,9 @@
         <!-- アクションボタンセクション -->
         <section class="mt-16 text-center">
             <h3 class="text-2xl font-bold mb-8">ゲームを始める</h3>
-            <p id="login-prompt" class="text-gray-500 hidden">ゲームを始めるにはログインしてください。</p>
-            
-            <div id="action-buttons-container" class="flex flex-col sm:flex-row justify-center items-center gap-4 mt-4">
+
+            <!-- 対局作成（オンライン・オフライン・CPU対戦はcreate.htmlで設定） -->
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-4 mt-4">
                 <a href="create.html" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition duration-300 ease-in-out transform hover:scale-105">
                     対局を作成する
                 </a>
@@ -140,40 +140,9 @@
     <script type="module">
         import { loadHeader } from './js/header.js';
         import { loadFooter } from './js/footer.js';
-        import { auth, database } from './js/firebase.js';
-        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
         loadHeader();
         loadFooter();
-
-        onAuthStateChanged(auth, (user) => {
-            const actionButtonsContainer = document.getElementById('action-buttons-container');
-            const loginPrompt = document.getElementById('login-prompt');
-
-            if (user) {
-                // ユーザープロフィールを取得
-                const userProfileRef = ref(database, `users/${user.uid}/profile`);
-                get(userProfileRef).then((snapshot) => {
-                    const userNickname = snapshot.exists() ? snapshot.val().nickname : null;
-
-                    if (userNickname) {
-                        // ニックネーム設定済み：ゲーム開始ボタンを表示
-                        actionButtonsContainer.classList.remove('hidden');
-                        loginPrompt.classList.add('hidden');
-                    } else {
-                        // ニックネーム未設定：設定を促すメッセージを表示
-                        actionButtonsContainer.classList.add('hidden');
-                        loginPrompt.classList.remove('hidden');
-                        loginPrompt.innerHTML = `ゲームを始めるには、<a href="profile.html?uid=${user.uid}" class="text-yellow-600 hover:underline font-bold">プロフィールページ</a>でニックネームを設定してください。`;
-                    }
-                });
-            } else {
-                actionButtonsContainer.classList.add('hidden');
-                loginPrompt.classList.remove('hidden');
-                loginPrompt.innerHTML = `ゲームを始めるには、<a href="profile.html" class="text-blue-600 hover:underline font-bold">プロフィールページ</a>でログインしてください。`;
-            }
-        });
     </script>
 </body>
 </html>
