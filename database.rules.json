@@ -1,6 +1,7 @@
 {
   "rules": {
     "games": {
+      ".indexOn": ["meta/status"],
       "$gameId": {
         ".read": "auth != null",
         ".write": false

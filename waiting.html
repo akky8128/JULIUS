@@ -119,14 +119,14 @@
                     });
                 });
 
-                // ▼▼▼【変更点】statusだけでなく、対局データ全体を監視する ▼▼▼
-                const gameRef = ref(database, `games/${gameId}`);
+                // meta ノードだけを購読してマッチング検知（全体取得より帯域を節約）
+                const metaRef = ref(database, `games/${gameId}/meta`);
 
-                const unsubscribe = onValue(gameRef, (snapshot) => {
+                const unsubscribe = onValue(metaRef, (snapshot) => {
                     // --- データが存在する場合 ---
                     if (snapshot.exists()) {
-                        const gameData = snapshot.val();
-                        if (gameData.meta.status === 'in_progress') {
+                        const metaData = snapshot.val();
+                        if (metaData.status === 'in_progress') {
                             unsubscribe(); // 監視を停止
                             const redirectToGame = () => {
                                 window.location.href = `game.html?id=${gameId}&mode=play`;

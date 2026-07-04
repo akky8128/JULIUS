@@ -313,11 +313,11 @@
                  return;
             }
             
-            // ページに必要な10件のゲーム詳細データのみを取得
+            // ページに必要な10件のゲームのmetaのみを取得（帯域幅削減のため /meta サブパスのみ参照）
             const gamePromises = gameIdsToShow.map(gameInfo =>
-                get(ref(database, `games/${gameInfo.id}`)).then(gameSnap => ({
+                get(ref(database, `games/${gameInfo.id}/meta`)).then(metaSnap => ({
                     id: gameInfo.id,
-                    data: gameSnap.val(),
+                    meta: metaSnap.val(),
                     timestamp: gameInfo.timestamp
                 }))
             );
@@ -325,9 +325,9 @@
             const gamesToShow = await Promise.all(gamePromises);
 
             for (const game of gamesToShow) {
-                 if (!game.data) continue; // データが取得できなかった場合はスキップ
+                 if (!game.meta) continue; // metaが取得できなかった場合はスキップ
 
-                const meta = game.data.meta;
+                const meta = game.meta;
                 const players = meta.players;
                 const viewedUid = urlParams.get('uid');
 

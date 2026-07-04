@@ -98,6 +98,10 @@ export const createGame = onCall(async (request) => {
     Array.from({length: boardSize}, () => 0),
   );
 
+  // 新スキーマ: meta / current / moves/{n} に分割して書き込む。
+  // moves/0 はボードスナップショット付き（初期状態）。
+  // current は最新確定状態の単一ノード（今後のトランザクション対象）。
+  const initialTimers = {white: timeLimit, black: timeLimit};
   const gameData = {
     gameId,
     meta: {
@@ -115,14 +119,25 @@ export const createGame = onCall(async (request) => {
       updatedAt: now,
       expiresAt: status === "waiting" ? expiresAt : null,
     },
-    moves: [{
+    current: {
       turnNumber: 0,
       currentPlayer: "white",
       board: initialBoard,
       summonCounts: {white: 0, black: 0},
-      timers: {white: timeLimit, black: timeLimit},
+      timers: initialTimers,
       timestamp: now,
-    }],
+      status,
+    },
+    moves: {
+      0: {
+        turnNumber: 0,
+        currentPlayer: "white",
+        board: initialBoard,
+        summonCounts: {white: 0, black: 0},
+        timers: initialTimers,
+        timestamp: now,
+      },
+    },
   };
 
   const db = admin.database();
@@ -197,9 +212,15 @@ export const joinGame = onCall(async (request) => {
   updates[`/games/${gameId}/meta/players/creator`] = null;
   updates[`/games/${gameId}/meta/expiresAt`] = null;
   updates[`/games/${gameId}/meta/updatedAt`] = now;
+  // moves/0 のタイマー・タイムスタンプをリセット（既存の挙動を維持）
   updates[`/games/${gameId}/moves/0/timers/white`] = timeLimit;
   updates[`/games/${gameId}/moves/0/timers/black`] = timeLimit;
   updates[`/games/${gameId}/moves/0/timestamp`] = now;
+  // current ノードもあわせてリセット
+  updates[`/games/${gameId}/current/timers/white`] = timeLimit;
+  updates[`/games/${gameId}/current/timers/black`] = timeLimit;
+  updates[`/games/${gameId}/current/timestamp`] = now;
+  updates[`/games/${gameId}/current/status`] = "in_progress";
   updates[`/users/${creatorUid}/games/${gameId}`] = now;
   updates[`/users/${joinerUid}/games/${gameId}`] = now;
   updates[`/users/${creatorUid}/profile/gamesPlayed`] = admin.database.ServerValue.increment(1);
@@ -212,6 +233,118 @@ export const joinGame = onCall(async (request) => {
 
 
 // --- (3) 手番の確定（盤面ロジックはすべてサーバー側で検証） ---
+
+/**
+ * current ノードに対してトランザクションを実行し、手番を確定させる。
+ * legacyFallback=true の場合、旧スキーマゲームに対して合成した current で再試行する。
+ *
+ * @param {object} db Firebase Admin Database インスタンス
+ * @param {string} gameId ゲームID
+ * @param {string} uid 呼び出しユーザーの UID
+ * @param {number} turnNumber クライアントが送信した手番番号
+ * @param {Array}  actions アクション配列
+ * @param {object} meta meta ノードの値（players, gameSettings）
+ * @returns {{ txResult, validationError, outcome }}
+ */
+async function runSubmitMoveTransaction(db, gameId, uid, turnNumber, actions, meta) {
+  const currentRef = db.ref(`/games/${gameId}/current`);
+  let validationError = null;
+  let outcome = null;
+
+  const txResult = await currentRef.transaction((currentData) => {
+    validationError = null;
+    outcome = null;
+
+    if (!currentData) {
+      // 初回呼び出しはローカル未キャッシュのため必ずnullで呼ばれる。
+      // ここでundefinedを返すとSDKがサーバーの実データで再試行せず即abortしてしまうため、
+      // nullを返して突合・再試行に委ね、本当に存在しない場合はトランザクション完了後に判定する。
+      return null;
+    }
+
+    if (currentData.status !== "in_progress") {
+      validationError = new HttpsError("failed-precondition", "This game is not in progress.");
+      return undefined;
+    }
+
+    if (currentData.turnNumber !== turnNumber) {
+      validationError = new HttpsError("aborted", "The turn has already advanced. Please reload.");
+      return undefined;
+    }
+
+    const moverColor = currentData.currentPlayer;
+    const moverUid = meta.players[moverColor];
+    if (uid !== moverUid) {
+      validationError = new HttpsError("permission-denied", "It is not your turn.");
+      return undefined;
+    }
+
+    const {boardSize, maxSummons, timeControl} = meta.gameSettings;
+    const newTimers = computeTimersAfterTurn(currentData, timeControl, moverColor, Date.now());
+    if (timeControl.enabled && newTimers[moverColor] <= 0) {
+      validationError = new HttpsError("failed-precondition", "Time is up; this move can no longer be submitted.");
+      return undefined;
+    }
+
+    let simulated;
+    try {
+      simulated = simulateTurn({
+        board: normalizeBoard(currentData.board, boardSize),
+        summonCounts: currentData.summonCounts,
+        currentPlayer: moverColor,
+        boardSize,
+      }, actions);
+    } catch (err) {
+      validationError = err instanceof GameLogicError ?
+        new HttpsError(err.code, err.message) :
+        new HttpsError("internal", "Failed to process the move.");
+      return undefined;
+    }
+
+    const newCurrentPlayer = moverColor === "white" ? "black" : "white";
+    const newTurnNumber = turnNumber + 1;
+
+    const hasWinner = checkWinCondition(
+      {board: simulated.board, summonCounts: simulated.summonCounts, currentPlayer: newCurrentPlayer},
+      {maxSummons, boardSize},
+    );
+    if (hasWinner) {
+      outcome = {
+        winner: moverColor,
+        winReason: `${newCurrentPlayer === "white" ? "白" : "黒"}は有効な手を指せなくなりました。`,
+        actions,
+        newTimers,
+        newTurnNumber,
+        newCurrentPlayer,
+        simulated,
+      };
+    } else {
+      outcome = {
+        winner: null,
+        winReason: null,
+        actions,
+        newTimers,
+        newTurnNumber,
+        newCurrentPlayer,
+        simulated,
+      };
+    }
+
+    // current を新しい状態に更新する（盤面スナップショット付き）。
+    return {
+      turnNumber: newTurnNumber,
+      currentPlayer: newCurrentPlayer,
+      board: simulated.board,
+      summonCounts: simulated.summonCounts,
+      timers: newTimers,
+      timestamp: Date.now(),
+      status: hasWinner ? "completed" : "in_progress",
+    };
+  });
+
+  return {txResult, validationError, outcome};
+}
+
 export const submitMove = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication is required.");
@@ -231,97 +364,50 @@ export const submitMove = onCall(async (request) => {
   }
 
   const db = admin.database();
-  const gameRef = db.ref(`/games/${gameId}`);
 
-  let validationError = null;
-  let outcome = null;
-
-  const txResult = await gameRef.transaction((gameData) => {
-    validationError = null;
-    outcome = null;
-
-    if (!gameData) {
-      // 初回呼び出しはローカル未キャッシュのため必ずnullで呼ばれる。
-      // ここでundefinedを返すとSDKがサーバーの実データで再試行せず即abortしてしまうため、
-      // nullを返して突合・再試行に委ね、本当に存在しない場合はトランザクション完了後に判定する。
-      return null;
-    }
-    if (gameData.meta?.status !== "in_progress") {
-      validationError = new HttpsError("failed-precondition", "This game is not in progress.");
-      return undefined;
-    }
-
-    const moves = toMovesArray(gameData.moves);
-    if (moves.length === 0) {
-      validationError = new HttpsError("failed-precondition", "Game has no move history.");
-      return undefined;
-    }
-    const lastMove = moves[moves.length - 1];
-
-    if (lastMove.turnNumber !== turnNumber) {
-      validationError = new HttpsError("aborted", "The turn has already advanced. Please reload.");
-      return undefined;
-    }
-
-    const moverColor = lastMove.currentPlayer;
-    const moverUid = gameData.meta.players[moverColor];
-    if (uid !== moverUid) {
-      validationError = new HttpsError("permission-denied", "It is not your turn.");
-      return undefined;
-    }
-
-    const {boardSize, maxSummons, timeControl} = gameData.meta.gameSettings;
-    const newTimers = computeTimersAfterTurn(lastMove, timeControl, moverColor, Date.now());
-    if (timeControl.enabled && newTimers[moverColor] <= 0) {
-      validationError = new HttpsError("failed-precondition", "Time is up; this move can no longer be submitted.");
-      return undefined;
-    }
-
-    let simulated;
-    try {
-      simulated = simulateTurn({
-        board: normalizeBoard(lastMove.board, boardSize),
-        summonCounts: lastMove.summonCounts,
-        currentPlayer: moverColor,
-        boardSize,
-      }, actions);
-    } catch (err) {
-      validationError = err instanceof GameLogicError ?
-        new HttpsError(err.code, err.message) :
-        new HttpsError("internal", "Failed to process the move.");
-      return undefined;
-    }
-
-    const newCurrentPlayer = moverColor === "white" ? "black" : "white";
-    const newMove = {
-      turnNumber: lastMove.turnNumber + 1,
-      currentPlayer: newCurrentPlayer,
-      board: simulated.board,
-      summonCounts: simulated.summonCounts,
-      timers: newTimers,
-      timestamp: Date.now(),
-    };
-    moves.push(newMove);
-
-    const updatedMeta = {...gameData.meta, updatedAt: Date.now()};
-
-    const hasWinner = checkWinCondition(
-      {board: simulated.board, summonCounts: simulated.summonCounts, currentPlayer: newCurrentPlayer},
-      {maxSummons, boardSize},
-    );
-    if (hasWinner) {
-      updatedMeta.status = "completed";
-      updatedMeta.winner = moverColor;
-      updatedMeta.winReason = `${newCurrentPlayer === "white" ? "白" : "黒"}は有効な手を指せなくなりました。`;
-      outcome = {winner: moverColor};
-    }
-
-    return {...gameData, meta: updatedMeta, moves};
-  });
-
-  if (!validationError && txResult.committed && txResult.snapshot.val() === null) {
-    validationError = new HttpsError("not-found", "The specified game does not exist.");
+  // meta は対局参加後に不変（players, gameSettings）なので一度だけ読む。
+  // status のバリデーションはトランザクション内の current.status で行う。
+  const metaSnap = await db.ref(`/games/${gameId}/meta`).once("value");
+  if (!metaSnap.exists()) {
+    throw new HttpsError("not-found", "The specified game does not exist.");
   }
+  const meta = metaSnap.val();
+
+  let {txResult, validationError, outcome} = await runSubmitMoveTransaction(
+    db, gameId, uid, turnNumber, actions, meta,
+  );
+
+  // current ノードが存在しない（旧スキーマのゲーム）場合のレガシーフォールバック。
+  // moves 配列から current を合成して書き込み、トランザクションを1回再試行する。
+  if (!validationError && txResult.committed && txResult.snapshot.val() === null) {
+    const movesSnap = await db.ref(`/games/${gameId}/moves`).once("value");
+    if (movesSnap.exists()) {
+      const movesArr = toMovesArray(movesSnap.val());
+      const lastMove = movesArr[movesArr.length - 1];
+      const synthesized = {
+        turnNumber: lastMove.turnNumber,
+        currentPlayer: lastMove.currentPlayer,
+        board: lastMove.board,
+        summonCounts: lastMove.summonCounts,
+        timers: lastMove.timers,
+        timestamp: lastMove.timestamp,
+        // meta.status をそのまま引き継ぐ（"in_progress" をハードコードすると
+        // 完了済みの旧スキーマゲームに手を追加できてしまう）。
+        status: meta.status,
+      };
+      const currentRef = db.ref(`/games/${gameId}/current`);
+      // 並行ライターに上書きされないよう、null のときだけ書き込む。
+      await currentRef.transaction((existing) => existing === null ? synthesized : undefined);
+      // メイントランザクションを再試行する。
+      ({txResult, validationError, outcome} = await runSubmitMoveTransaction(
+        db, gameId, uid, turnNumber, actions, meta,
+      ));
+    } else {
+      // moves も存在しない場合はゲームが本当に存在しない。
+      throw new HttpsError("not-found", "The specified game does not exist.");
+    }
+  }
+
   if (validationError) {
     throw validationError;
   }
@@ -329,11 +415,94 @@ export const submitMove = onCall(async (request) => {
     throw new HttpsError("aborted", "Failed to save the move. Please try again.");
   }
 
-  return {success: true, gameEnded: !!outcome, winner: outcome ? outcome.winner : null};
+  // トランザクション確定後: moves/{n} の追記と meta の更新を一括書き込み。
+  const {winner, winReason, newTimers, newTurnNumber, newCurrentPlayer} = outcome;
+  const postUpdates = {};
+  // moves/{n}: アクションのみ（盤面スナップショットなし）
+  postUpdates[`/games/${gameId}/moves/${newTurnNumber}`] = {
+    turnNumber: newTurnNumber,
+    currentPlayer: newCurrentPlayer,
+    actions,
+    timers: newTimers,
+    timestamp: Date.now(),
+  };
+  postUpdates[`/games/${gameId}/meta/updatedAt`] = Date.now();
+  if (winner) {
+    postUpdates[`/games/${gameId}/meta/status`] = "completed";
+    postUpdates[`/games/${gameId}/meta/winner`] = winner;
+    postUpdates[`/games/${gameId}/meta/winReason`] = winReason;
+  }
+  await db.ref().update(postUpdates);
+
+  return {success: true, gameEnded: !!winner, winner: winner ?? null};
 });
 
 
 // --- (4) 時間切れの確定（サーバー時刻を基準に検証） ---
+
+/**
+ * current ノードに対して時間切れのトランザクションを実行する。
+ *
+ * @param {object} db Firebase Admin Database インスタンス
+ * @param {string} gameId ゲームID
+ * @param {string} uid 呼び出しユーザーの UID
+ * @param {object} meta meta ノードの値
+ * @returns {{ txResult, validationError, outcome }}
+ */
+async function runClaimTimeoutTransaction(db, gameId, uid, meta) {
+  const currentRef = db.ref(`/games/${gameId}/current`);
+  let validationError = null;
+  let outcome = null;
+
+  const txResult = await currentRef.transaction((currentData) => {
+    validationError = null;
+    outcome = null;
+
+    if (!currentData) {
+      // submitMove 同様、初回呼び出しの見せかけのnullでabortしないようにする。
+      return null;
+    }
+
+    if (currentData.status !== "in_progress") {
+      validationError = new HttpsError("failed-precondition", "This game is not in progress.");
+      return undefined;
+    }
+
+    const players = meta.players;
+    if (uid !== players.white && uid !== players.black) {
+      validationError = new HttpsError("permission-denied", "You are not a participant in this game.");
+      return undefined;
+    }
+
+    const timeControl = meta.gameSettings?.timeControl;
+    if (!timeControl?.enabled) {
+      validationError = new HttpsError("failed-precondition", "This game does not use time control.");
+      return undefined;
+    }
+
+    const moverColor = currentData.currentPlayer;
+    const newTimers = computeTimersAfterTurn(currentData, timeControl, moverColor, Date.now());
+
+    if (newTimers[moverColor] > 0) {
+      validationError = new HttpsError("failed-precondition", "Time has not run out yet.");
+      return undefined;
+    }
+
+    const winner = moverColor === "white" ? "black" : "white";
+    const winReason = `${moverColor === "white" ? "白" : "黒"}の時間切れです。`;
+    outcome = {winner, winReason, newTimers};
+
+    // 時間切れプレイヤーのタイマーを0に確定させて current を完了状態にする。
+    return {
+      ...currentData,
+      timers: newTimers,
+      status: "completed",
+    };
+  });
+
+  return {txResult, validationError, outcome};
+}
+
 export const claimTimeout = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication is required.");
@@ -346,70 +515,60 @@ export const claimTimeout = onCall(async (request) => {
   }
 
   const db = admin.database();
-  const gameRef = db.ref(`/games/${gameId}`);
 
-  let validationError = null;
-  let outcome = null;
-
-  const txResult = await gameRef.transaction((gameData) => {
-    validationError = null;
-    outcome = null;
-
-    if (!gameData) {
-      // submitMove同様、初回呼び出しの見せかけのnullでabortしないようにする。
-      return null;
-    }
-    if (gameData.meta?.status !== "in_progress") {
-      validationError = new HttpsError("failed-precondition", "This game is not in progress.");
-      return undefined;
-    }
-    const players = gameData.meta.players;
-    if (uid !== players.white && uid !== players.black) {
-      validationError = new HttpsError("permission-denied", "You are not a participant in this game.");
-      return undefined;
-    }
-    const timeControl = gameData.meta.gameSettings?.timeControl;
-    if (!timeControl?.enabled) {
-      validationError = new HttpsError("failed-precondition", "This game does not use time control.");
-      return undefined;
-    }
-
-    const moves = toMovesArray(gameData.moves);
-    if (moves.length === 0) {
-      validationError = new HttpsError("failed-precondition", "Game has no move history.");
-      return undefined;
-    }
-    const lastMove = moves[moves.length - 1];
-    const moverColor = lastMove.currentPlayer;
-    const newTimers = computeTimersAfterTurn(lastMove, timeControl, moverColor, Date.now());
-
-    if (newTimers[moverColor] > 0) {
-      validationError = new HttpsError("failed-precondition", "Time has not run out yet.");
-      return undefined;
-    }
-
-    const winner = moverColor === "white" ? "black" : "white";
-    const winReason = `${moverColor === "white" ? "白" : "黒"}の時間切れです。`;
-    outcome = {winner};
-
-    moves[moves.length - 1] = {...lastMove, timers: newTimers};
-
-    return {
-      ...gameData,
-      meta: {...gameData.meta, status: "completed", winner, winReason, updatedAt: Date.now()},
-      moves,
-    };
-  });
-
-  if (!validationError && txResult.committed && txResult.snapshot.val() === null) {
-    validationError = new HttpsError("not-found", "The specified game does not exist.");
+  // meta は不変フィールド（players, gameSettings）の読み取りに使う。
+  const metaSnap = await db.ref(`/games/${gameId}/meta`).once("value");
+  if (!metaSnap.exists()) {
+    throw new HttpsError("not-found", "The specified game does not exist.");
   }
+  const meta = metaSnap.val();
+
+  let {txResult, validationError, outcome} = await runClaimTimeoutTransaction(
+    db, gameId, uid, meta,
+  );
+
+  // レガシーフォールバック: current がない旧スキーマのゲームに対応する。
+  if (!validationError && txResult.committed && txResult.snapshot.val() === null) {
+    const movesSnap = await db.ref(`/games/${gameId}/moves`).once("value");
+    if (movesSnap.exists()) {
+      const movesArr = toMovesArray(movesSnap.val());
+      const lastMove = movesArr[movesArr.length - 1];
+      const synthesized = {
+        turnNumber: lastMove.turnNumber,
+        currentPlayer: lastMove.currentPlayer,
+        board: lastMove.board,
+        summonCounts: lastMove.summonCounts,
+        timers: lastMove.timers,
+        timestamp: lastMove.timestamp,
+        // meta.status をそのまま引き継ぐ（"in_progress" をハードコードすると
+        // 完了済みの旧スキーマゲームに手を追加できてしまう）。
+        status: meta.status,
+      };
+      const currentRef = db.ref(`/games/${gameId}/current`);
+      await currentRef.transaction((existing) => existing === null ? synthesized : undefined);
+      ({txResult, validationError, outcome} = await runClaimTimeoutTransaction(
+        db, gameId, uid, meta,
+      ));
+    } else {
+      throw new HttpsError("not-found", "The specified game does not exist.");
+    }
+  }
+
   if (validationError) {
     throw validationError;
   }
   if (!txResult.committed) {
     throw new HttpsError("aborted", "Failed to finalize the timeout. Please try again.");
   }
+
+  // トランザクション確定後: meta を一括更新する。
+  const {winner, winReason} = outcome;
+  const postUpdates = {};
+  postUpdates[`/games/${gameId}/meta/status`] = "completed";
+  postUpdates[`/games/${gameId}/meta/winner`] = winner;
+  postUpdates[`/games/${gameId}/meta/winReason`] = winReason;
+  postUpdates[`/games/${gameId}/meta/updatedAt`] = Date.now();
+  await db.ref().update(postUpdates);
 
   return {success: true, winner: outcome.winner};
 });

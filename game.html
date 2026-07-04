@@ -174,7 +174,7 @@
         loadFooter();
 
         import { auth, database, functions } from './js/firebase.js';
-        import { ref, get, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { ref, get, onValue, onChildAdded, off } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
         import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
         import { requireAuthAndNickname } from './js/authGuard.js';
@@ -237,6 +237,11 @@
                 // ローカル対局（'cpu'モードで未ログイン、または'local'モード）は
                 // Firebaseを使わずブラウザ内だけで完結する。
                 this.isLocalOnlyGame = false;
+
+                // handleDataUpdate の初回呼び出しフラグ
+                this._handleDataUpdateCalled = false;
+                // DB リスナーの unsubscribe 関数配列
+                this._dbUnsubscribers = [];
 
                 this.bindDOMElements();
                 this.addEventListeners();
@@ -491,47 +496,202 @@
             }
 
             loadGameData(user) {
-                this.dbRef = ref(database, 'games/' + this.gameId);
+                // リスナーのデタッチ用: unsubscribe 関数を配列で管理する
+                this._dbUnsubscribers = [];
 
+                // .info/serverTimeOffset リスナー（既存のまま）
                 const offsetRef = ref(database, '.info/serverTimeOffset');
-                onValue(offsetRef, (snap) => {
+                const unsubOffset = onValue(offsetRef, (snap) => {
                     this.serverTimeOffset = snap.val() || 0;
                 });
+                this._dbUnsubscribers.push(unsubOffset);
 
-                onValue(this.dbRef, (snapshot) => {
-                    if (snapshot.exists()) {
-                        const gameData = snapshot.val();
-                        const uid = user ? user.uid : null;
+                // hydration 用の内部状態
+                // metaが届く前に moves が届いた場合のバッファ
+                this._pendingMoves = {};
+                // 出力済みの turnNumber セット（重複排除）
+                this._hydratedTurnNumbers = new Set();
+                // handleDataUpdate の debounce タイマー ID
+                this._hydrationRafId = null;
+                // 初回 meta が届いたかどうか
+                this._metaReady = false;
 
+                // 全リスナーを一括デタッチするヘルパー
+                this._detachAllListeners = () => {
+                    for (const unsub of this._dbUnsubscribers) {
+                        unsub();
+                    }
+                    this._dbUnsubscribers = [];
+                };
+
+                // ── 1. meta ノードを購読 ──────────────────────────────────
+                const metaRef = ref(database, 'games/' + this.gameId + '/meta');
+                const unsubMeta = onValue(metaRef, async (snapshot) => {
+                    if (!snapshot.exists()) {
+                        // meta が存在しない = 対局が見つからない
+                        this.dom.loadingContainer.textContent = 'エラー: 指定された対局が見つかりません。';
+                        this._detachAllListeners();
+                        return;
+                    }
+
+                    const meta = snapshot.val();
+                    const uid = user ? user.uid : null;
+
+                    // 初回のみ: 参加者チェック
+                    if (!this._metaReady) {
                         if (this.mode === 'play' || (this.mode === 'cpu' && this.cpuPersisted)) {
                             if (!uid) {
                                 this.dom.loadingContainer.textContent = 'エラー: この対局をプレイするにはログインが必要です。';
                                 this.dom.container.classList.add('hidden');
-                                if (this.dbRef) off(this.dbRef);
+                                this._detachAllListeners();
                                 return;
                             }
-                            const players = gameData.meta.players;
+                            const players = meta.players;
                             const isParticipant = uid === players.white || uid === players.black;
                             if (!isParticipant) {
                                 this.dom.loadingContainer.textContent = 'エラー: この対局の参加者ではありません。観戦モードでアクセスしてください。';
                                 this.dom.container.classList.add('hidden');
-                                if (this.dbRef) off(this.dbRef);
+                                this._detachAllListeners();
                                 return;
                             }
                         }
-                        this.handleDataUpdate(gameData);
+
+                        // 初回: gameData を初期化
+                        this.gameData = { meta, moves: [] };
+                        this._metaReady = true;
+
+                        // meta 到着前にバッファされた moves をドレインする
+                        this._drainPendingMoves();
                     } else {
-                        this.dom.loadingContainer.textContent = 'エラー: 指定された対局が見つかりません。';
-                        if (this.dbRef) off(this.dbRef);
+                        // 2回目以降: meta だけ更新して再描画
+                        this.gameData.meta = meta;
+                        this._scheduleHandleDataUpdate();
                     }
                 }, (error) => {
-                    console.error("Database read failed:", error);
+                    console.error("Database meta read failed:", error);
                     this.dom.loadingContainer.textContent = 'エラー: データベースの読み込みに失敗しました。';
                 });
+                this._dbUnsubscribers.push(unsubMeta);
+
+                // ── 2. moves ノードを onChildAdded で購読（hydration レイヤー）──
+                const movesRef = ref(database, 'games/' + this.gameId + '/moves');
+                const unsubMoves = onChildAdded(movesRef, (childSnap) => {
+                    const entry = childSnap.val();
+                    if (!entry) return;
+
+                    if (!this._metaReady) {
+                        // meta がまだ届いていない場合はバッファ
+                        this._pendingMoves[entry.turnNumber] = entry;
+                        return;
+                    }
+
+                    this._hydrateAndAppend(entry);
+                });
+                this._dbUnsubscribers.push(unsubMoves);
+            }
+
+            /**
+             * DB エントリ 1 件を完全な状態オブジェクトに変換して this.gameData.moves に追記する。
+             * - board が含まれる場合（旧形式 / moves/0）: そのまま使用。
+             * - board が含まれない場合（新形式 n>=1）: 直前の状態から simulateTurn で復元する。
+             * 重複・順序外到着は pendingMoves バッファで吸収する。
+             */
+            _hydrateAndAppend(entry) {
+                const tn = entry.turnNumber;
+
+                // 重複排除
+                if (this._hydratedTurnNumbers.has(tn)) return;
+
+                // 順序外チェック: 直前の状態がまだない場合はバッファ
+                if (tn > 0 && this.gameData.moves.length < tn) {
+                    this._pendingMoves[tn] = entry;
+                    return;
+                }
+
+                let fullState;
+                if (entry.board !== undefined) {
+                    // 旧形式 または moves/0: board が含まれる → そのまま使用
+                    fullState = {
+                        turnNumber: tn,
+                        currentPlayer: entry.currentPlayer,
+                        board: entry.board,
+                        summonCounts: entry.summonCounts || { white: 0, black: 0 },
+                        timers: entry.timers,
+                        timestamp: entry.timestamp,
+                    };
+                } else {
+                    // 新形式 (n>=1): 直前の完全状態から盤面を復元する
+                    const prev = this.gameData.moves[tn - 1];
+                    const { boardSize } = this.gameData.meta.gameSettings;
+                    try {
+                        const stateForSim = {
+                            board: normalizeBoard(prev.board, boardSize),
+                            summonCounts: { ...prev.summonCounts },
+                            currentPlayer: prev.currentPlayer,
+                            boardSize,
+                        };
+                        const result = simulateTurn(stateForSim, entry.actions);
+                        fullState = {
+                            turnNumber: tn,
+                            currentPlayer: entry.currentPlayer,
+                            board: result.board,
+                            summonCounts: result.summonCounts,
+                            timers: entry.timers,
+                            timestamp: entry.timestamp,
+                        };
+                    } catch (err) {
+                        console.error(`手番 ${tn} の hydration に失敗しました:`, err);
+                        return;
+                    }
+                }
+
+                this.gameData.moves[tn] = fullState;
+                this._hydratedTurnNumbers.add(tn);
+
+                // debounce して再描画をまとめる
+                this._scheduleHandleDataUpdate();
+
+                // バッファに次の手番があればドレインする
+                if (this._pendingMoves[tn + 1]) {
+                    const next = this._pendingMoves[tn + 1];
+                    delete this._pendingMoves[tn + 1];
+                    this._hydrateAndAppend(next);
+                }
+            }
+
+            /**
+             * meta 到着前にバッファされた pendingMoves を順番に処理する。
+             */
+            _drainPendingMoves() {
+                // turnNumber 順にソートして処理
+                const pending = Object.values(this._pendingMoves).sort((a, b) => a.turnNumber - b.turnNumber);
+                this._pendingMoves = {};
+                for (const entry of pending) {
+                    this._hydrateAndAppend(entry);
+                }
+            }
+
+            /**
+             * handleDataUpdate を setTimeout(0) でデバウンスして呼ぶ。
+             * 初期ロード中の 100 手分を 1 回にまとめ、対局中の 1 手は即座に反映される。
+             * (requestAnimationFrame はバックグラウンドタブで発火しないため使わない)
+             */
+            _scheduleHandleDataUpdate() {
+                if (this._hydrationRafId !== null) return; // 既にスケジュール済み
+                this._hydrationRafId = setTimeout(() => {
+                    this._hydrationRafId = null;
+                    if (this.gameData) {
+                        this.handleDataUpdate(this.gameData);
+                    }
+                }, 0);
             }
             
             async handleDataUpdate(data) {
-                const wasFirstLoad = !this.gameData;
+                // ローカル対局・commitTurnLocally からの呼び出し: data を直接セット
+                // オンライン対局: loadGameData が this.gameData を管理するため、data === this.gameData
+                // _handleDataUpdateCalled フラグで「初回呼び出し」を判定する（ローカル/オンライン共通）
+                const wasFirstLoad = !this._handleDataUpdateCalled;
+                this._handleDataUpdateCalled = true;
                 this.gameData = data;
 
                 // Bug2修正: CPUモードで、確定済み状態が人間のターンを示している場合は
@@ -539,9 +699,9 @@
                 // （submitCpuMove の await 中に onValue が発火し、cpuThinking=true のまま
                 //   レンダリングされてトグルが隠れる問題を防ぐ）
                 if (this.mode === 'cpu' && this.gameData.meta?.status === 'in_progress') {
-                    const rawMoves = this.gameData.moves;
-                    if (rawMoves) {
-                        const movesArr = Array.isArray(rawMoves) ? rawMoves : Object.values(rawMoves);
+                    // moves は常に配列（ローカル/オンライン共通）
+                    const movesArr = this.gameData.moves;
+                    if (movesArr && movesArr.length > 0) {
                         const latestMove = movesArr[movesArr.length - 1];
                         if (latestMove && latestMove.currentPlayer === this.humanColor) {
                             this.cpuThinking = false;
@@ -608,16 +768,16 @@
                 if (!this.gameData) return;
 
                 // 対局IDの表示は状態に関わらず常に必要なため、早期returnより前に設定する
-                this.dom.gameId.textContent = this.gameData.gameId;
-                this.dom.gameIdDisplayFooter.textContent = this.gameData.gameId;
+                // this.gameId はローカル/オンライン共通で常に設定済み
+                const displayGameId = this.gameId || this.gameData.gameId || '';
+                this.dom.gameId.textContent = displayGameId;
+                this.dom.gameIdDisplayFooter.textContent = displayGameId;
 
                 // ゲームが既に終了している場合、UIの状態をリセットせずに終了する
                 if (this.gameData.meta.status === 'completed') {
                     // Bug4修正: 最終手の盤面を表示するために viewingTurnNumber を最新手に合わせる。
-                    // normalization は下の行で行われるため、ここで配列化して長さを求める。
-                    const completedMoves = this.gameData.moves
-                        ? (Array.isArray(this.gameData.moves) ? this.gameData.moves : Object.values(this.gameData.moves))
-                        : [];
+                    // moves は常に配列（ローカル/オンライン共通）
+                    const completedMoves = this.gameData.moves || [];
                     if (completedMoves.length > 0) {
                         this.viewingTurnNumber = completedMoves.length - 1;
                     }
@@ -625,6 +785,7 @@
                     return;
                 }
 
+                // moves は常に配列のため Object.values 変換は不要（互換性のため残す）
                 if (this.gameData.moves && !Array.isArray(this.gameData.moves)) {
                     this.gameData.moves = Object.values(this.gameData.moves);
                 }
