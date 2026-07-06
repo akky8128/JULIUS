@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-07-05T14:04:08.868Z",
+  "config": {
+    "games": 60,
+    "size": 4,
+    "maxDepth": 3,
+    "timeBudgetMs": 150,
+    "maxPlies": 150,
+    "seed": 1,
+    "openingRandomPlies": 6,
+    "epsilon": 0.1,
+    "augment": 8
+  },
+  "MAX_DEPTH": 8,
+  "SCALAR_DIM": 4,
+  "featureDim": 256,
+  "numGames": 60,
+  "numRecords": 23320,
+  "resultDistribution": {
+    "win": 1473,
+    "draw": 0,
+    "loss": 1442
+  },
+  "scoreStats": {
+    "min": -999999999,
+    "max": 999999999,
+    "mean": 20240147.419554032
+  },
+  "symCoverage": {
+    "0": 2915,
+    "1": 2915,
+    "2": 2915,
+    "3": 2915,
+    "4": 2915,
+    "5": 2915,
+    "6": 2915,
+    "7": 2915
+  }
+}

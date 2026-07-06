@@ -18,6 +18,8 @@
 import { generateTurns } from "../js/ai/moveGen.js";
 import { checkWinCondition, maxSummonsFor, normalizeBoard } from "../js/gameLogic.js";
 import { randomPlayer, greedyPlayer, searchPlayer } from "../js/ai/players.js";
+import { loadNetwork } from "../js/ai/nnue/network.js";
+import { createNnueSearchPlayerFromNet } from "../js/ai/nnue/nnuePlayer.js";
 
 // ───────────────────────── CLI パース ─────────────────────────
 function parseArgs(argv) {
@@ -61,9 +63,10 @@ function mulberry32(seed) {
  *
  * @param {string} type
  * @param {() => number} rng
+ * @param {Map<string, object>} [netCache] - nnue:<path> 用の事前ロード済み network キャッシュ
  * @returns {{ name: string, chooseTurn(state): object|null }}
  */
-function makePlayer(type, rng) {
+function makePlayer(type, rng, netCache) {
   if (type === "greedy")  return greedyPlayer(rng);
   if (type === "random")  return randomPlayer(rng);
 
@@ -93,7 +96,65 @@ function makePlayer(type, rng) {
     return searchPlayer(rng, { maxDepth, timeBudgetMs });
   }
 
-  throw new Error(`Unknown player type: ${type}. Valid types: random, greedy, search, search:d3, search:d4:500`);
+  // nnue:<path>[:d<depth>][:<timeMs>] などをパース
+  if (type.startsWith("nnue:")) {
+    const parts = type.split(":");
+    // parts[0] === "nnue"
+    // parts[1] === path
+    // parts[2] (optional) === "d<depth>"
+    // parts[3] (optional) === "<timeBudgetMs>"
+    const netPathRaw = parts[1];
+    if (!netPathRaw) throw new Error(`nnue のパスが指定されていません: "${type}"`);
+    const netPath = netPathRaw.replace(/\.bin$/, ".json");
+    let maxDepth = 64;
+    let timeBudgetMs = 1000;
+
+    if (parts[2]) {
+      const depthStr = parts[2];
+      if (depthStr.startsWith("d")) {
+        maxDepth = parseInt(depthStr.slice(1), 10);
+        if (isNaN(maxDepth)) throw new Error(`Invalid depth in "${type}"`);
+      } else {
+        throw new Error(`nnue の depth は "d<N>" 形式で指定してください: "${type}"`);
+      }
+    }
+    if (parts[3]) {
+      timeBudgetMs = parseInt(parts[3], 10);
+      if (isNaN(timeBudgetMs)) throw new Error(`Invalid timeBudgetMs in "${type}"`);
+    }
+
+    if (!netCache || !netCache.has(netPath)) {
+      throw new Error(`nnue network not preloaded for path: "${netPath}". Call preloadNnueNetworks first.`);
+    }
+    const net = netCache.get(netPath);
+    const name = `nnue(${netPath.replace(/\\/g, "/").split("/").pop().replace(/\.json$/, "")},d${maxDepth},${timeBudgetMs}ms)`;
+    return createNnueSearchPlayerFromNet(rng, net, { maxDepth, timeBudgetMs, name });
+  }
+
+  throw new Error(`Unknown player type: ${type}. Valid types: random, greedy, search, search:d3, search:d4:500, nnue:<path>, nnue:<path>:d64:1000`);
+}
+
+/**
+ * white/black のプレイヤータイプ文字列を走査し、nnue:<path> のユニークな
+ * path ごとに一度だけ loadNetwork してキャッシュする。
+ *
+ * @param {string[]} types - プレイヤータイプ文字列の配列（例: [whiteType, blackType]）
+ * @returns {Promise<Map<string, object>>}
+ */
+async function preloadNnueNetworks(types) {
+  const netCache = new Map();
+  const uniquePaths = new Set();
+  for (const type of types) {
+    if (type.startsWith("nnue:")) {
+      const path = type.split(":")[1];
+      if (path) uniquePaths.add(path.replace(/\.bin$/, ".json"));
+    }
+  }
+  for (const path of uniquePaths) {
+    const net = await loadNetwork(path);
+    netCache.set(path, net);
+  }
+  return netCache;
 }
 
 // ───────────────────────── ゲームループ ─────────────────────────
@@ -214,11 +275,14 @@ function playGame(boardSize, maxPlies, whiteAgent, blackAgent) {
 }
 
 // ───────────────────────── メイン ─────────────────────────
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   const { games, size, seed, maxPlies, swap } = args;
   const whiteType = args.white;
   const blackType = args.black;
+
+  // nnue: 型のネットワークを事前ロード（ゲームループ前に一度だけ）
+  const netCache = await preloadNnueNetworks([whiteType, blackType]);
 
   console.log(`Ukeja Layer 自己対戦 — games=${games} size=${size} seed=${seed} maxPlies=${maxPlies}`);
   console.log(`プレイヤー: white=${whiteType}  black=${blackType}${swap ? "  [--swap 有効]" : ""}`);
@@ -264,8 +328,8 @@ function main() {
     const wRng = mulberry32((agentRng() * 0xffffffff) >>> 0);
     const bRng = mulberry32((agentRng() * 0xffffffff) >>> 0);
 
-    const wAgent = makePlayer(wType, wRng);
-    const bAgent = makePlayer(bType, bRng);
+    const wAgent = makePlayer(wType, wRng, netCache);
+    const bAgent = makePlayer(bType, bRng, netCache);
 
     const result = playGame(size, maxPlies, wAgent, bAgent);
 
@@ -345,8 +409,18 @@ function main() {
     for (const aType of allTypes) {
       const wins = agentWins[aType] || 0;
       const decided = agentGames[aType] || 0;
-      const rate = decided > 0 ? ((wins / decided) * 100).toFixed(1) : "N/A";
-      console.log(`  ${aType}: ${wins}勝 / ${decided}決着 (勝率 ${rate}%)`);
+      const losses = decided - wins;
+      const p = decided > 0 ? wins / decided : null;
+      const rate = p !== null ? (p * 100).toFixed(1) : "N/A";
+      let ciStr = "N/A";
+      if (p !== null && decided > 0) {
+        const se = Math.sqrt((p * (1 - p)) / decided);
+        const lo = Math.max(0, p - 1.96 * se) * 100;
+        const hi = Math.min(1, p + 1.96 * se) * 100;
+        ciStr = `[${lo.toFixed(1)}%, ${hi.toFixed(1)}%]`;
+      }
+      console.log(`  ${aType}: ${wins}勝 / ${decided}決着 (勝率 ${rate}%)  95%CI ${ciStr}`);
+      console.log(`    wins=${wins} losses=${losses} draws=N/A(集計対象外) winRate=${rate}% 95%CI=${ciStr}`);
     }
   }
 
@@ -374,4 +448,8 @@ function main() {
   }
 }
 
-main();
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+
