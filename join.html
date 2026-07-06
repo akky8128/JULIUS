@@ -41,9 +41,9 @@
             <form id="join-form">
                 <div class="space-y-6">
                     <div>
-                        <label for="game-id-input" class="block text-lg font-semibold text-gray-700">対局ID</label>
-                        <p class="text-sm text-gray-500 mt-1">共有された対局IDを入力してください。</p>
-                        <input type="text" id="game-id-input" name="gameId" required class="mt-2 p-3 w-full border rounded-md" placeholder="例: bf9b68b2-0515-44b2-8cc2-37f911084f34">
+                        <label for="game-id-input" class="block text-lg font-semibold text-gray-700">対局コード / 対局ID</label>
+                        <p class="text-sm text-gray-500 mt-1">友達から共有された6文字のコード（例: ABC123）または対局IDを入力してください。</p>
+                        <input type="text" id="game-id-input" name="gameId" required class="mt-2 p-3 w-full border rounded-md" placeholder="例: ABC123">
                     </div>
                 </div>
 
@@ -85,7 +85,10 @@
 
         const urlParams = new URLSearchParams(window.location.search);
         const gameIdFromInvite = urlParams.get('id');
-        if (gameIdFromInvite) {
+        const codeFromInvite = urlParams.get('code');
+        if (codeFromInvite) {
+            gameIdInput.value = codeFromInvite.toUpperCase();
+        } else if (gameIdFromInvite) {
             gameIdInput.value = gameIdFromInvite;
         }
 
@@ -104,9 +107,9 @@
             e.preventDefault();
             errorMessage.textContent = '';
 
-            const gameId = gameIdInput.value.trim();
-            if (!gameId) {
-                errorMessage.textContent = '対局IDを入力してください。';
+            const raw = gameIdInput.value.trim();
+            if (!raw) {
+                errorMessage.textContent = '対局コードまたは対局IDを入力してください。';
                 return;
             }
 
@@ -115,10 +118,16 @@
             buttonSpinner.classList.remove('hidden');
 
             try {
+                // 6文字の英数字（ハイフンなし）は短い対局コードとして扱う
+                const isShortCode = /^[A-Za-z0-9]{6}$/.test(raw) && !raw.includes('-');
+
                 // Cloud Functionを呼び出す
-                await joinGame({ gameId: gameId });
-                // 成功したらゲーム画面へ
-                window.location.href = `game.html?id=${gameId}&mode=play`;
+                const res = isShortCode
+                    ? await joinGame({ code: raw.toUpperCase() })
+                    : await joinGame({ gameId: raw });
+
+                // 成功したらゲーム画面へ（コード参加時はクライアント側でIDが分からないため、返り値のIDを使用）
+                window.location.href = `game.html?id=${res.data.gameId}&mode=play`;
 
             } catch (error) {
                 console.error("Failed to join game:", error);

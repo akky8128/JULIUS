@@ -27,6 +27,10 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": false
       }
+    },
+    "gameCodes": {
+      ".read": false,
+      ".write": false
     }
   }
 }

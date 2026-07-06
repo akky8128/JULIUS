@@ -24,7 +24,12 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**",
-      "functions/**"
+      "functions/**",
+      "nnue-lab.html",
+      "js/ai/nnue/**",
+      "js/ai/nnueWorker.js",
+      "models/**",
+      "tools/**"
     ]
   },
   "emulators": {
