@@ -42,15 +42,28 @@
     <main class="container mx-auto px-6 py-12">
         <div class="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg text-center">
             <h2 class="text-3xl font-bold text-gray-900 mb-4">対戦相手を待っています...</h2>
-            <p class="text-gray-600 mb-8">以下の対局コードを対戦相手に共有してください。</p>
+            <p class="text-gray-600 mb-8">以下のいずれかを対戦相手に共有してください。</p>
 
-            <div id="game-code-display" class="text-4xl md:text-5xl font-mono font-bold tracking-widest text-gray-900 mb-4 hidden"></div>
+            <!-- 6文字の対局コード -->
+            <div class="mb-6">
+                <p class="text-sm text-gray-500 mb-2 text-left">対局コード</p>
+                <div class="bg-gray-200 p-4 rounded-lg flex items-center justify-between">
+                    <span id="game-code-display" class="text-3xl md:text-4xl font-mono font-bold tracking-widest text-gray-900 px-2"></span>
+                    <button id="copy-code-button" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg ml-4 transition-transform transform hover:scale-105">
+                        <i class="fas fa-copy mr-2"></i>コピー
+                    </button>
+                </div>
+            </div>
 
-            <div class="bg-gray-200 p-4 rounded-lg flex items-center justify-between">
-                <span id="game-id-display" class="text-sm md:text-base font-mono text-gray-500 break-all"></span>
-                <button id="copy-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg ml-4 transition-transform transform hover:scale-105">
-                    <i class="fas fa-copy mr-2"></i>コピー
-                </button>
+            <!-- 参加用リンク -->
+            <div class="mb-2">
+                <p class="text-sm text-gray-500 mb-2 text-left">参加用リンク</p>
+                <div class="bg-gray-200 p-4 rounded-lg flex items-center justify-between">
+                    <span id="join-url-display" class="text-sm md:text-base font-mono text-gray-600 break-all text-left px-2"></span>
+                    <button id="copy-url-button" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg ml-4 transition-transform transform hover:scale-105">
+                        <i class="fas fa-copy mr-2"></i>コピー
+                    </button>
+                </div>
             </div>
             <p id="copy-feedback" class="text-green-600 h-6 mt-2"></p>
 
@@ -99,9 +112,10 @@
 
         const createInvitationFn = httpsCallable(functions, 'createInvitation');
 
-        const gameIdDisplay = document.getElementById('game-id-display');
         const gameCodeDisplay = document.getElementById('game-code-display');
-        const copyButton = document.getElementById('copy-button');
+        const joinUrlDisplay = document.getElementById('join-url-display');
+        const copyCodeButton = document.getElementById('copy-code-button');
+        const copyUrlButton = document.getElementById('copy-url-button');
         const copyFeedback = document.getElementById('copy-feedback');
         const shareButton = document.getElementById('share-button');
         const shareFeedback = document.getElementById('share-feedback');
@@ -123,13 +137,24 @@
                     return;
                 }
 
-                gameIdDisplay.textContent = gameId;
+                // 対局コードが判明するまでは、暫定的にID経由の参加URLを表示しておく
+                joinUrlDisplay.textContent = `${location.origin}/join.html?id=${gameId}`;
 
-                copyButton.addEventListener('click', () => {
-                    navigator.clipboard.writeText(gameId).then(() => {
+                const copyToClipboard = (text) => {
+                    navigator.clipboard.writeText(text).then(() => {
                         copyFeedback.textContent = 'コピーしました！';
                         setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
+                    }).catch(() => {
+                        copyFeedback.textContent = 'コピーに失敗しました。';
                     });
+                };
+
+                copyCodeButton.addEventListener('click', () => {
+                    const code = gameCodeDisplay.textContent.trim();
+                    if (code) copyToClipboard(code);
+                });
+                copyUrlButton.addEventListener('click', () => {
+                    copyToClipboard(joinUrlDisplay.textContent.trim());
                 });
 
                 shareButton.addEventListener('click', async () => {
@@ -171,13 +196,14 @@
                     if (snapshot.exists()) {
                         const metaData = snapshot.val();
 
-                        // 対局コードが分かればコードを前面に、対局IDは補助情報として表示
+                        // 対局コードが分かればコードと、それを含む参加URLを表示
                         if (metaData.gameCode) {
                             gameCodeDisplay.textContent = metaData.gameCode;
-                            gameCodeDisplay.classList.remove('hidden');
                             shareUrl = `${location.origin}/join.html?code=${metaData.gameCode}`;
+                            joinUrlDisplay.textContent = shareUrl;
                         } else if (!shareUrl) {
                             shareUrl = `${location.origin}/join.html?id=${gameId}`;
+                            joinUrlDisplay.textContent = shareUrl;
                         }
                         shareButton.disabled = false;
 

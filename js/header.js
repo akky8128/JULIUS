@@ -22,16 +22,44 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
     const bell = document.getElementById('notification-bell');
     const dropdown = document.getElementById('notification-dropdown');
 
-    bell.addEventListener('click', (e) => {
-        e.stopPropagation();
-        dropdown.classList.toggle('hidden');
-        document.getElementById('user-menu-dropdown')?.classList.add('hidden');
-    });
-    document.addEventListener('click', () => {
+    // ナビのドロップダウン（対局 / 学ぶ）。通知・ユーザーメニューと同じ開閉パターン。
+    const playMenuButton = document.getElementById('play-menu-button');
+    const playMenuDropdown = document.getElementById('play-menu-dropdown');
+    const learnMenuButton = document.getElementById('learn-menu-button');
+    const learnMenuDropdown = document.getElementById('learn-menu-dropdown');
+
+    // 開いている全ドロップダウン（通知・ユーザーメニュー・ナビ）を閉じる。
+    function closeAllMenus() {
         dropdown.classList.add('hidden');
         document.getElementById('user-menu-dropdown')?.classList.add('hidden');
+        playMenuDropdown?.classList.add('hidden');
+        learnMenuDropdown?.classList.add('hidden');
+    }
+
+    // 指定のドロップダウンだけを開閉する（他は閉じる）。
+    function toggleMenu(target) {
+        const willOpen = target.classList.contains('hidden');
+        closeAllMenus();
+        target.classList.toggle('hidden', !willOpen);
+    }
+
+    bell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMenu(dropdown);
     });
+    playMenuButton?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMenu(playMenuDropdown);
+    });
+    learnMenuButton?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMenu(learnMenuDropdown);
+    });
+
+    document.addEventListener('click', closeAllMenus);
     dropdown.addEventListener('click', e => e.stopPropagation());
+    playMenuDropdown?.addEventListener('click', e => e.stopPropagation());
+    learnMenuDropdown?.addEventListener('click', e => e.stopPropagation());
 
     // Bug5修正: ニックネーム/メニューUIの構築を再利用可能な関数に切り出す。
     // julius:profile-updated イベントで再呼び出しすることでヘッダー表示を即時更新できる。
@@ -85,8 +113,9 @@ export async function loadHeader(placeholderId = 'header-placeholder') {
 
         menuButton.addEventListener('click', (e) => {
             e.stopPropagation();
-            dropdown.classList.add('hidden');
-            menuDropdown.classList.toggle('hidden');
+            const willOpen = menuDropdown.classList.contains('hidden');
+            closeAllMenus();
+            menuDropdown.classList.toggle('hidden', !willOpen);
         });
         menuDropdown.addEventListener('click', e => e.stopPropagation());
     }

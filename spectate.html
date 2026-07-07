@@ -66,6 +66,15 @@
         loadHeader();
         loadFooter();
 
+        // 共有リンク（?id=）でアクセスされた場合は入力欄を埋めて即観戦へ遷移する
+        const params = new URLSearchParams(window.location.search);
+        const idFromLink = params.get('id');
+        if (idFromLink) {
+            const trimmed = idFromLink.trim();
+            document.getElementById('game-id-input').value = trimmed;
+            window.location.href = `game.html?id=${trimmed}&mode=spectate`;
+        }
+
         const form = document.getElementById('spectate-form');
         form.addEventListener('submit', (e) => {
             e.preventDefault();

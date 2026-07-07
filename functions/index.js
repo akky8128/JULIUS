@@ -908,6 +908,117 @@ export const respondDraw = onCall(async (request) => {
 });
 
 
+// --- (4e) オフライン(ホットシート)対局の終了（投了 / 引き分け合意） ---
+
+/**
+ * current ノードを completed にするトランザクション（レガシーフォールバック付き）。
+ *
+ * @param {object} db Firebase Admin Database インスタンス
+ * @param {string} gameId ゲームID
+ * @param {object} meta meta ノードの値
+ * @returns {{ txResult, validationError }}
+ */
+async function runOfflineEndTransaction(db, gameId, meta) {
+  const currentRef = db.ref(`/games/${gameId}/current`);
+  let validationError = null;
+
+  const txResult = await currentRef.transaction((currentData) => {
+    validationError = null;
+    if (!currentData) {
+      return null;
+    }
+    if (currentData.status !== "in_progress") {
+      validationError = new HttpsError("failed-precondition", "This game is not in progress.");
+      return undefined;
+    }
+    return {...currentData, status: "completed"};
+  });
+
+  return {txResult, validationError};
+}
+
+/**
+ * オフライン(ホットシート)対局を投了/引き分けで終了させる。
+ * 白と黒が同一ユーザー（= 同一端末の2人対戦）の対局のみ許可する。
+ * result: "white" | "black" | "draw" （勝者の色、または引き分け）
+ */
+export const endOfflineGame = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication is required.");
+  }
+  const uid = request.auth.uid;
+  const {gameId, result} = request.data || {};
+  if (!gameId || typeof gameId !== "string") {
+    throw new HttpsError("invalid-argument", "gameId is required.");
+  }
+  if (!["white", "black", "draw"].includes(result)) {
+    throw new HttpsError("invalid-argument", "result must be 'white', 'black', or 'draw'.");
+  }
+
+  const db = admin.database();
+  const metaSnap = await db.ref(`/games/${gameId}/meta`).once("value");
+  if (!metaSnap.exists()) {
+    throw new HttpsError("not-found", "The specified game does not exist.");
+  }
+  const meta = metaSnap.val();
+  const players = meta.players || {};
+
+  // オフライン対局のみ: 白と黒が同一ユーザーで、かつ呼び出し者本人であること。
+  if (players.white !== players.black || uid !== players.white) {
+    throw new HttpsError("permission-denied", "This operation is only allowed for your own offline game.");
+  }
+
+  let {txResult, validationError} = await runOfflineEndTransaction(db, gameId, meta);
+
+  // レガシーフォールバック: current がない旧スキーマのゲームに対応する。
+  if (!validationError && txResult.committed && txResult.snapshot.val() === null) {
+    const movesSnap = await db.ref(`/games/${gameId}/moves`).once("value");
+    if (movesSnap.exists()) {
+      const movesArr = toMovesArray(movesSnap.val());
+      const lastMove = movesArr[movesArr.length - 1];
+      const synthesized = {
+        turnNumber: lastMove.turnNumber,
+        currentPlayer: lastMove.currentPlayer,
+        board: lastMove.board,
+        summonCounts: lastMove.summonCounts,
+        timers: lastMove.timers,
+        timestamp: lastMove.timestamp,
+        status: meta.status,
+      };
+      const currentRef = db.ref(`/games/${gameId}/current`);
+      await currentRef.transaction((existing) => existing === null ? synthesized : undefined);
+      ({txResult, validationError} = await runOfflineEndTransaction(db, gameId, meta));
+    } else {
+      throw new HttpsError("not-found", "The specified game does not exist.");
+    }
+  }
+
+  if (validationError) {
+    throw validationError;
+  }
+  if (!txResult.committed) {
+    throw new HttpsError("aborted", "Failed to end the game. Please try again.");
+  }
+
+  const winner = result === "draw" ? null : result;
+  const winnerLabel = result === "white" ? "白" : "黒";
+  const loserLabel = result === "white" ? "黒" : "白";
+  const winReason = result === "draw" ?
+    "合意により引き分けとなりました。" :
+    `${loserLabel}が投了しました。${winnerLabel}の勝利！`;
+
+  const postUpdates = {};
+  postUpdates[`/games/${gameId}/meta/status`] = "completed";
+  postUpdates[`/games/${gameId}/meta/winner`] = winner;
+  postUpdates[`/games/${gameId}/meta/winReason`] = winReason;
+  postUpdates[`/games/${gameId}/meta/updatedAt`] = Date.now();
+  postUpdates[`/games/${gameId}/drawOffer`] = null;
+  await db.ref().update(postUpdates);
+
+  return {success: true, winner};
+});
+
+
 // --- (5) フォロー / アンフォロー ---
 export const toggleFollow = onCall(async (request) => {
   if (!request.auth) {
