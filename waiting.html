@@ -42,16 +42,36 @@
     <main class="container mx-auto px-6 py-12">
         <div class="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg text-center">
             <h2 class="text-3xl font-bold text-gray-900 mb-4">対戦相手を待っています...</h2>
-            <p class="text-gray-600 mb-8">以下の対局IDを対戦相手に共有してください。</p>
+            <p class="text-gray-600 mb-8">以下のいずれかを対戦相手に共有してください。</p>
 
-            <div class="bg-gray-200 p-4 rounded-lg flex items-center justify-between">
-                <span id="game-id-display" class="text-lg md:text-xl font-mono text-gray-700 break-all"></span>
-                <button id="copy-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg ml-4 transition-transform transform hover:scale-105">
-                    <i class="fas fa-copy mr-2"></i>コピー
-                </button>
+            <!-- 6文字の対局コード -->
+            <div class="mb-6">
+                <p class="text-sm text-gray-500 mb-2 text-left">対局コード</p>
+                <div class="bg-gray-200 p-4 rounded-lg flex items-center justify-between">
+                    <span id="game-code-display" class="text-3xl md:text-4xl font-mono font-bold tracking-widest text-gray-900 px-2"></span>
+                    <button id="copy-code-button" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg ml-4 transition-transform transform hover:scale-105">
+                        <i class="fas fa-copy mr-2"></i>コピー
+                    </button>
+                </div>
+            </div>
+
+            <!-- 参加用リンク -->
+            <div class="mb-2">
+                <p class="text-sm text-gray-500 mb-2 text-left">参加用リンク</p>
+                <div class="bg-gray-200 p-4 rounded-lg flex items-center justify-between">
+                    <span id="join-url-display" class="text-sm md:text-base font-mono text-gray-600 break-all text-left px-2"></span>
+                    <button id="copy-url-button" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg ml-4 transition-transform transform hover:scale-105">
+                        <i class="fas fa-copy mr-2"></i>コピー
+                    </button>
+                </div>
             </div>
             <p id="copy-feedback" class="text-green-600 h-6 mt-2"></p>
-            
+
+            <button id="share-button" disabled class="mt-2 w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg text-lg transition">
+                <i class="fas fa-share mr-2"></i>共有する
+            </button>
+            <p id="share-feedback" class="text-green-600 h-6 mt-2"></p>
+
             <div class="mt-8 flex justify-center items-center space-x-4">
                 <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16"></div>
                 <p class="text-lg text-gray-700">対戦相手が参加すると自動でゲームが始まります。</p>
@@ -92,9 +112,16 @@
 
         const createInvitationFn = httpsCallable(functions, 'createInvitation');
 
-        const gameIdDisplay = document.getElementById('game-id-display');
-        const copyButton = document.getElementById('copy-button');
+        const gameCodeDisplay = document.getElementById('game-code-display');
+        const joinUrlDisplay = document.getElementById('join-url-display');
+        const copyCodeButton = document.getElementById('copy-code-button');
+        const copyUrlButton = document.getElementById('copy-url-button');
         const copyFeedback = document.getElementById('copy-feedback');
+        const shareButton = document.getElementById('share-button');
+        const shareFeedback = document.getElementById('share-feedback');
+
+        // 共有ボタン用に、最初のmetaスナップショット取得後のコード/URLを保持
+        let shareUrl = null;
 
         const matchFoundSound = new Audio('sounds/match-found.mp3');
 
@@ -110,13 +137,55 @@
                     return;
                 }
 
-                gameIdDisplay.textContent = gameId;
+                // 対局コードが判明するまでは、暫定的にID経由の参加URLを表示しておく
+                joinUrlDisplay.textContent = `${location.origin}/join.html?id=${gameId}`;
 
-                copyButton.addEventListener('click', () => {
-                    navigator.clipboard.writeText(gameId).then(() => {
+                const copyToClipboard = (text) => {
+                    navigator.clipboard.writeText(text).then(() => {
                         copyFeedback.textContent = 'コピーしました！';
                         setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
+                    }).catch(() => {
+                        copyFeedback.textContent = 'コピーに失敗しました。';
                     });
+                };
+
+                copyCodeButton.addEventListener('click', () => {
+                    const code = gameCodeDisplay.textContent.trim();
+                    if (code) copyToClipboard(code);
+                });
+                copyUrlButton.addEventListener('click', () => {
+                    copyToClipboard(joinUrlDisplay.textContent.trim());
+                });
+
+                shareButton.addEventListener('click', async () => {
+                    if (!shareUrl) return;
+                    const codeMatch = shareUrl.match(/code=([A-Z0-9]+)/);
+                    const shareText = codeMatch
+                        ? `対局コード ${codeMatch[1]} で対戦しましょう！`
+                        : '対局に招待します！';
+
+                    if (navigator.share) {
+                        try {
+                            await navigator.share({
+                                title: 'JuliUs. 対局への招待',
+                                text: shareText,
+                                url: shareUrl
+                            });
+                        } catch (err) {
+                            if (err.name !== 'AbortError') {
+                                console.error('Failed to share:', err);
+                            }
+                        }
+                    } else {
+                        // Web Share非対応環境ではリンクをコピーして代替
+                        try {
+                            await navigator.clipboard.writeText(shareUrl);
+                            shareFeedback.textContent = 'リンクをコピーしました';
+                            setTimeout(() => { shareFeedback.textContent = ''; }, 2000);
+                        } catch (err) {
+                            console.error('Failed to copy invite link:', err);
+                        }
+                    }
                 });
 
                 // meta ノードだけを購読してマッチング検知（全体取得より帯域を節約）
@@ -126,6 +195,18 @@
                     // --- データが存在する場合 ---
                     if (snapshot.exists()) {
                         const metaData = snapshot.val();
+
+                        // 対局コードが分かればコードと、それを含む参加URLを表示
+                        if (metaData.gameCode) {
+                            gameCodeDisplay.textContent = metaData.gameCode;
+                            shareUrl = `${location.origin}/join.html?code=${metaData.gameCode}`;
+                            joinUrlDisplay.textContent = shareUrl;
+                        } else if (!shareUrl) {
+                            shareUrl = `${location.origin}/join.html?id=${gameId}`;
+                            joinUrlDisplay.textContent = shareUrl;
+                        }
+                        shareButton.disabled = false;
+
                         if (metaData.status === 'in_progress') {
                             unsubscribe(); // 監視を停止
                             const redirectToGame = () => {

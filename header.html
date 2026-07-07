@@ -8,10 +8,27 @@
         </div>
         
         <div class="flex items-center">
-            <nav class="hidden sm:flex items-center space-x-4 mr-6 text-sm font-semibold text-gray-600">
-                <a href="create.html" class="hover:text-blue-600 transition-colors">対局を作成</a>
-                <a href="join.html" class="hover:text-blue-600 transition-colors">対局に参加</a>
-                <a href="spectate.html" class="hover:text-blue-600 transition-colors">対局を観戦</a>
+            <nav class="hidden sm:flex items-center space-x-6 mr-6 text-sm font-semibold text-gray-600">
+                <!-- 「対局」ドロップダウン -->
+                <div class="relative">
+                    <button id="play-menu-button" class="flex items-center hover:text-blue-600 transition-colors focus:outline-none">
+                        対局<i class="fas fa-caret-down ml-1 text-xs"></i>
+                    </button>
+                    <div id="play-menu-dropdown" class="hidden absolute left-0 mt-2 w-40 bg-white rounded-lg shadow-xl z-20">
+                        <a href="create.html" class="block px-4 py-3 hover:bg-gray-100 border-b text-gray-800">対局を作成</a>
+                        <a href="join.html" class="block px-4 py-3 hover:bg-gray-100 border-b text-gray-800">対局に参加</a>
+                        <a href="spectate.html" class="block px-4 py-3 hover:bg-gray-100 text-gray-800">対局を観戦</a>
+                    </div>
+                </div>
+                <!-- 「学ぶ」ドロップダウン -->
+                <div class="relative">
+                    <button id="learn-menu-button" class="flex items-center hover:text-blue-600 transition-colors focus:outline-none">
+                        学ぶ<i class="fas fa-caret-down ml-1 text-xs"></i>
+                    </button>
+                    <div id="learn-menu-dropdown" class="hidden absolute left-0 mt-2 w-40 bg-white rounded-lg shadow-xl z-20">
+                        <a href="tutorial.html" class="block px-4 py-3 hover:bg-gray-100 text-gray-800">チュートリアル</a>
+                    </div>
+                </div>
             </nav>
 
             <div id="notification-container" class="relative mr-6 hidden">

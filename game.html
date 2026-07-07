@@ -69,6 +69,21 @@
         .kifu-scroll::-webkit-scrollbar { display: none; }
         #kifu-text { padding: 0 16px; }
         .kifu-move.kifu-active { background-color: #d1d5db; border-radius: 4px; }
+
+        /* FLIPアニメーション用: transformの変化にだけtransitionをかける */
+        .piece.piece-flip-transition {
+            transition: transform 220ms ease, opacity 220ms ease;
+        }
+        .piece.piece-enter-fade {
+            opacity: 0;
+            transform: scale(0.4);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .piece.piece-flip-transition,
+            .piece.piece-enter-fade {
+                transition: none !important;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -77,8 +92,6 @@
     <div id="header-placeholder"></div>
 
     <main id="game-container" class="w-full max-w-xl mx-auto py-8 px-4 hidden">
-        <p id="game-id-line" class="text-center text-xs text-gray-500 mb-2">Game ID: <span id="game-id"></span></p>
-
         <!-- ゲーム情報パネル -->
         <div id="info-panel" class="bg-white rounded-lg shadow-md p-4 mb-4 text-center">
             <p id="turn-indicator" class="text-xl font-semibold"></p>
@@ -137,19 +150,45 @@
             <button id="last-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-fast-forward"></i></button>
         </div>
 
-        <div id="exit-button-container" class="bg-white rounded-lg shadow-md p-4 mt-4 text-center">
-            <a href="index.html" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition">トップページへ戻る</a>
+        <!-- 投了・引き分け提案（Turn表示の下・共有セクションの上。操作確定ボタンから離して誤タップを防ぐ） -->
+        <div id="game-action-section" class="hidden bg-white rounded-lg shadow-md p-4 mt-4">
+            <div id="game-action-buttons" class="flex space-x-2">
+                <button id="resign-button" class="w-1/2 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-lg shadow">投了</button>
+                <button id="draw-button" class="w-1/2 bg-gray-400 hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-lg shadow">引き分け提案</button>
+            </div>
+            <p id="draw-offer-status" class="hidden text-center text-sm text-gray-500 mt-2"></p>
         </div>
 
-        <div id="copy-id-section" class="bg-white rounded-lg shadow-md p-4 mt-4 text-center">
-            <p class="text-sm text-gray-600 mb-2">対局IDを共有する</p>
-            <div class="bg-gray-200 p-2 rounded-lg flex items-center justify-between">
-                <span id="game-id-display-footer" class="text-sm font-mono text-gray-700 break-all px-2"></span>
-                <button id="copy-button-footer" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-lg transition-transform transform hover:scale-105">
-                    <i class="fas fa-copy"></i>
-                </button>
+        <div id="exit-button-container" class="bg-white rounded-lg shadow-md p-4 mt-4 text-center space-y-2">
+            <a href="index.html" class="inline-block w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition">トップページへ戻る</a>
+            <button id="rematch-button" class="hidden w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg transition ml-0 sm:ml-2">もう一度対戦</button>
+        </div>
+
+        <div id="copy-id-section" class="bg-white rounded-lg shadow-md p-4 mt-4">
+            <p class="text-sm text-gray-600 mb-3 text-center">この対局を共有する</p>
+
+            <!-- 対局ID（UUID）。進行中は6文字コードが無効になるためIDで共有する -->
+            <div class="mb-3">
+                <p class="text-xs text-gray-500 mb-1">対局ID</p>
+                <div class="bg-gray-200 p-2 rounded-lg flex items-center justify-between">
+                    <span id="share-game-id" class="text-sm font-mono text-gray-700 break-all px-2"></span>
+                    <button id="copy-game-id-button" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-lg transition-transform transform hover:scale-105">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
             </div>
-            <p id="copy-feedback-footer" class="text-green-600 h-5 mt-1 text-sm"></p>
+
+            <!-- 観戦リンク -->
+            <div>
+                <p class="text-xs text-gray-500 mb-1">観戦リンク</p>
+                <div class="bg-gray-200 p-2 rounded-lg flex items-center justify-between">
+                    <span id="share-spectate-url" class="text-sm font-mono text-gray-700 break-all px-2"></span>
+                    <button id="copy-spectate-button" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-lg transition-transform transform hover:scale-105">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+            <p id="copy-feedback-footer" class="text-green-600 h-5 mt-2 text-sm text-center"></p>
         </div>
     </main>
      <div id="loading-container" class="text-center py-20">
@@ -161,7 +200,10 @@
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center">
             <h2 id="modal-title" class="text-2xl font-bold mb-4"></h2>
             <div id="modal-content" class="mb-6"></div>
-            <button id="modal-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg w-full">OK</button>
+            <div class="flex space-x-2">
+                <button id="modal-cancel-button" class="hidden w-1/2 bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg">キャンセル</button>
+                <button id="modal-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg w-full">OK</button>
+            </div>
         </div>
     </div>
 
@@ -184,6 +226,12 @@
 
         const submitMove = httpsCallable(functions, 'submitMove');
         const claimTimeout = httpsCallable(functions, 'claimTimeout');
+        const resignGame = httpsCallable(functions, 'resignGame');
+        const offerDraw = httpsCallable(functions, 'offerDraw');
+        const respondDraw = httpsCallable(functions, 'respondDraw');
+        const endOfflineGame = httpsCallable(functions, 'endOfflineGame');
+        const createGame = httpsCallable(functions, 'createGame');
+        const createInvitation = httpsCallable(functions, 'createInvitation');
 
         // ニックネームなどユーザー入力を含む値を安全にリンク付きで表示するヘルパー
         // CPUモードでは uid が 'human' / 'cpu' の疑似IDになるため、リンクを生成しない
@@ -243,6 +291,17 @@
                 // DB リスナーの unsubscribe 関数配列
                 this._dbUnsubscribers = [];
 
+                // 投了・引き分け・再戦機能用: 認証済みユーザーのuid
+                this.myUid = null;
+                // 直近に処理した drawOffer のtimestamp（重複表示防止用）
+                this._lastHandledDrawOfferTimestamp = null;
+                // 相手からの引き分け提案モーダルが開いているか
+                this._drawOfferModalOpen = false;
+                // 自分が出した引き分け提案が保留中か（render でドローボタンを触らないためのフラグ）
+                this._myDrawOfferPending = false;
+                // 再戦ボタンの多重クリック防止
+                this._rematchInProgress = false;
+
                 this.bindDOMElements();
                 this.addEventListeners();
             }
@@ -251,8 +310,6 @@
                 this.dom = {
                     container: document.getElementById('game-container'),
                     loadingContainer: document.getElementById('loading-container'),
-                    gameId: document.getElementById('game-id'),
-                    gameIdLine: document.getElementById('game-id-line'),
                     board: document.getElementById('board'),
                     turnIndicator: document.getElementById('turn-indicator'),
                     playerColorIndicator: document.getElementById('player-color-indicator'),
@@ -276,10 +333,19 @@
                     modalTitle: document.getElementById('modal-title'),
                     modalContent: document.getElementById('modal-content'),
                     modalBtn: document.getElementById('modal-button'),
-                    gameIdDisplayFooter: document.getElementById('game-id-display-footer'),
-                    copyButtonFooter: document.getElementById('copy-button-footer'),
+                    modalCancelBtn: document.getElementById('modal-cancel-button'),
+                    shareGameId: document.getElementById('share-game-id'),
+                    copyGameIdButton: document.getElementById('copy-game-id-button'),
+                    shareSpectateUrl: document.getElementById('share-spectate-url'),
+                    copySpectateButton: document.getElementById('copy-spectate-button'),
                     copyFeedbackFooter: document.getElementById('copy-feedback-footer'),
                     copyIdSection: document.getElementById('copy-id-section'),
+                    gameActionSection: document.getElementById('game-action-section'),
+                    gameActionButtons: document.getElementById('game-action-buttons'),
+                    resignBtn: document.getElementById('resign-button'),
+                    drawBtn: document.getElementById('draw-button'),
+                    drawOfferStatus: document.getElementById('draw-offer-status'),
+                    rematchBtn: document.getElementById('rematch-button'),
                 };
             }
 
@@ -320,6 +386,8 @@
                 }
 
                 onAuthStateChanged(auth, async (user) => {
+                    this.myUid = user ? user.uid : null;
+
                     if (this.mode === 'spectate') {
                         // 観戦モードは未ログインでも閲覧できる仕様のため対象外
                         this.loadGameData(user);
@@ -329,6 +397,69 @@
                     if (!(await requireAuthAndNickname(user, database))) return;
                     this.loadGameData(user);
                 });
+            }
+
+            /**
+             * 投了・引き分け提案・再戦の対象となる「本当の2人対戦オンライン対局」かどうかを判定する。
+             * CPU対局・オフラインのホットシート対戦・観戦は対象外。
+             */
+            isRealOnlineGame() {
+                return this.mode === 'play' &&
+                    !!this.gameData?.meta?.players &&
+                    this.gameData.meta.players.white !== this.gameData.meta.players.black;
+            }
+
+            /**
+             * ホットシート（同一端末での2人オフライン対戦）かどうか。
+             * - 未ログイン: mode === 'local'
+             * - ログイン済み(gameType=offline): mode === 'play' かつ白と黒が同一ユーザー
+             */
+            isHotseatGame() {
+                if (this.mode === 'local') return true;
+                return this.mode === 'play' &&
+                    !!this.gameData?.meta?.players &&
+                    this.gameData.meta.players.white === this.gameData.meta.players.black;
+            }
+
+            /** DBに保存されるホットシート対局か（ログイン済みオフライン）。 */
+            isPersistedHotseat() {
+                return this.mode === 'play' && this.isHotseatGame();
+            }
+
+            /**
+             * ホットシート対局を終了させる。
+             * winner: 'white'|'black'（投了）または null（引き分け）。
+             * 保存対局は Cloud Function、未ログインlocalはクライアント側で確定する。
+             */
+            async finishHotseat(winner, reason) {
+                if (this.isPersistedHotseat()) {
+                    try {
+                        await endOfflineGame({ gameId: this.gameId, result: winner ?? 'draw' });
+                        // 画面更新は meta の onValue リスナー経由で自動反映される
+                    } catch (error) {
+                        console.error('Failed to end offline game:', error);
+                        this.setMessage(error.message || '対局の終了に失敗しました。');
+                    }
+                } else {
+                    this.finalizeLocalOutcome(winner, reason);
+                }
+            }
+
+            /** 自分の手番の色（'white'|'black'|null）を返す。 */
+            getMyColor() {
+                if (!this.gameData?.meta?.players || !this.myUid) return null;
+                const { white, black } = this.gameData.meta.players;
+                if (this.myUid === white) return 'white';
+                if (this.myUid === black) return 'black';
+                return null;
+            }
+
+            /** 相手プレイヤーの色・uidを返す。 */
+            getOpponentInfo() {
+                const myColor = this.getMyColor();
+                if (!myColor) return { color: null, uid: null };
+                const opponentColor = myColor === 'white' ? 'black' : 'white';
+                return { color: opponentColor, uid: this.gameData.meta.players[opponentColor] };
             }
 
             // URLパラメータから時間設定を読み取る共通ヘルパー。
@@ -419,8 +550,7 @@
                     }],
                 };
 
-                // Game ID 行と共有セクションをCPUモードでは非表示にする
-                if (this.dom.gameIdLine) this.dom.gameIdLine.style.display = 'none';
+                // 共有セクションをCPUモードでは非表示にする
                 if (this.dom.copyIdSection) this.dom.copyIdSection.style.display = 'none';
 
                 this.setupCpuWorker();
@@ -477,7 +607,6 @@
                     }],
                 };
 
-                if (this.dom.gameIdLine) this.dom.gameIdLine.style.display = 'none';
                 if (this.dom.copyIdSection) this.dom.copyIdSection.style.display = 'none';
 
                 this.handleDataUpdate(this.gameData);
@@ -588,6 +717,84 @@
                     this._hydrateAndAppend(entry);
                 });
                 this._dbUnsubscribers.push(unsubMoves);
+
+                // ── 3. drawOffer ノードを購読（本当の2人対戦オンライン対局のみ意味を持つ）──
+                // mode==='play' でない場合（CPU/観戦）は無視して構わないため、
+                // リスナー自体は張るが handleDrawOfferSnapshot 内でガードする。
+                if (this.mode === 'play') {
+                    const drawOfferRef = ref(database, 'games/' + this.gameId + '/drawOffer');
+                    const unsubDrawOffer = onValue(drawOfferRef, (snapshot) => {
+                        this.handleDrawOfferSnapshot(snapshot.exists() ? snapshot.val() : null);
+                    });
+                    this._dbUnsubscribers.push(unsubDrawOffer);
+                }
+            }
+
+            /**
+             * /games/{id}/drawOffer の変化を処理する。
+             * - 相手からの提案 → 承諾/拒否モーダルを表示（同じ提案を二重表示しない）
+             * - 自分が出した提案 → 「提案中」インジケータを表示
+             * - null（取り下げ・応答済み・手が指された） → インジケータ/モーダルをクリア
+             */
+            handleDrawOfferSnapshot(offer) {
+                if (!this.isRealOnlineGame()) return;
+
+                if (!offer) {
+                    this._lastHandledDrawOfferTimestamp = null;
+                    this._myDrawOfferPending = false;
+                    this.dom.drawOfferStatus.classList.add('hidden');
+                    this.dom.drawOfferStatus.textContent = '';
+                    this.dom.drawBtn.disabled = false;
+                    this.dom.drawBtn.textContent = '引き分け提案';
+                    if (this._drawOfferModalOpen) {
+                        this.hideModal();
+                        this._drawOfferModalOpen = false;
+                    }
+                    return;
+                }
+
+                if (offer.byUid === this.myUid) {
+                    // 自分が提案した側: 「提案中」表示のみ
+                    this._myDrawOfferPending = true;
+                    this.dom.drawOfferStatus.classList.remove('hidden');
+                    this.dom.drawOfferStatus.textContent = '引き分けを提案中…';
+                    this.dom.drawBtn.disabled = true;
+                    this.dom.drawBtn.textContent = '提案中…';
+                    return;
+                }
+
+                this._myDrawOfferPending = false;
+                // 相手からの提案: 同じ提案をすでに処理済みならスキップ（重複表示防止）
+                if (this._lastHandledDrawOfferTimestamp === offer.timestamp) return;
+                this._lastHandledDrawOfferTimestamp = offer.timestamp;
+
+                this._drawOfferModalOpen = true;
+                this.showModal(
+                    '引き分けの提案',
+                    '<p>相手が引き分けを提案しました。承諾しますか？</p>',
+                    async () => {
+                        this._drawOfferModalOpen = false;
+                        try {
+                            await respondDraw({ gameId: this.gameId, accept: true });
+                        } catch (error) {
+                            console.error('Failed to accept draw:', error);
+                            this.setMessage(error.message || '引き分けの応答に失敗しました。');
+                        }
+                    },
+                    {
+                        confirmLabel: '承諾',
+                        cancelLabel: '拒否',
+                        onCancel: async () => {
+                            this._drawOfferModalOpen = false;
+                            try {
+                                await respondDraw({ gameId: this.gameId, accept: false });
+                            } catch (error) {
+                                console.error('Failed to decline draw:', error);
+                                this.setMessage(error.message || '引き分けの応答に失敗しました。');
+                            }
+                        },
+                    }
+                );
             }
 
             /**
@@ -750,7 +957,8 @@
                     playSound(this.sounds.end);
                     const winner = this.gameData.meta.winner;
                     const reason = this.gameData.meta.winReason;
-                    this.showModal(`${winner === 'white' ? '白' : '黒'}の勝利！`, reason);
+                    const title = winner ? `${winner === 'white' ? '白' : '黒'}の勝利！` : '引き分け';
+                    this.showModal(title, reason);
                     // 繰り返し表示されないようにUIの状態を更新
                     this.uiGameState = 'ENDED';
                 }
@@ -767,11 +975,14 @@
             loadLatestState() {
                 if (!this.gameData) return;
 
-                // 対局IDの表示は状態に関わらず常に必要なため、早期returnより前に設定する
+                // 共有情報の表示は状態に関わらず常に必要なため、早期returnより前に設定する
                 // this.gameId はローカル/オンライン共通で常に設定済み
                 const displayGameId = this.gameId || this.gameData.gameId || '';
-                this.dom.gameId.textContent = displayGameId;
-                this.dom.gameIdDisplayFooter.textContent = displayGameId;
+                // 対局ID（UUID）。6文字コードは対局開始時に無効化されるためIDで共有する
+                this.dom.shareGameId.textContent = displayGameId;
+                // 観戦リンクはUUIDベース（対局開始後もコードに依存せず必ず開ける）
+                this.dom.shareSpectateUrl.textContent =
+                    `${location.origin}/spectate.html?id=${displayGameId}`;
 
                 // ゲームが既に終了している場合、UIの状態をリセットせずに終了する
                 if (this.gameData.meta.status === 'completed') {
@@ -821,6 +1032,11 @@
                 if (!this.isInitialLoad && this.viewingTurnNumber !== this.previousViewingTurnNumber) {
                     //playSound(this.sounds.move); 一時的にmove音は止める
                 }
+
+                // renderBoard内でFLIPアニメーションの要否を判定するため、
+                // previousViewingTurnNumber/isInitialLoadを更新する前に判定結果を確定させておく
+                const animateThisRender = this.shouldAnimateBoard();
+
                 this.previousViewingTurnNumber = this.viewingTurnNumber;
                 this.isInitialLoad = false; // 最初の描画が終わったらフラグを下ろす
 
@@ -828,7 +1044,7 @@
                 const stateToRender = this.uiGameState === 'IDLE' ? this.gameData.moves[this.viewingTurnNumber] : this.currentTurnState;
                 if (!stateToRender) return;
 
-                this.renderBoard(stateToRender.board);
+                this.renderBoard(stateToRender.board, animateThisRender);
                 this.updateInfo();
                 this.highlight();
                 this.updateReplayControls();
@@ -890,8 +1106,39 @@
                 }
             }
 
-            renderBoard(boardData) {
+            /**
+             * FLIPアニメーション対象かどうかを判定する。
+             * - 初回読み込み時は対象外（テレポート表示でよい）
+             * - 表示ターンが直前から+1で進んだ場合（最新手が指された/次の手へ進んだ場合）のみ対象
+             * - reduced motion 設定時は対象外
+             */
+            shouldAnimateBoard() {
+                if (this.isInitialLoad) return false;
+                if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+                return this.viewingTurnNumber === this.previousViewingTurnNumber + 1;
+            }
+
+            renderBoard(boardData, animate = false) {
                 const boardSize = this.gameData.meta.gameSettings.boardSize;
+
+                // --- FLIP: 再描画前に、既存の駒の位置を記録する ---
+                // キー = "r-c-stackIndex"（セルの座標 + スタック内インデックス）
+                const oldRects = new Map();
+                let decreasedCellCenters = []; // 移動元候補（駒が消えたマス）の中心座標
+                if (animate) {
+                    this.dom.board.querySelectorAll('.cell').forEach(cell => {
+                        const r = cell.dataset.r, c = cell.dataset.c;
+                        const pieces = cell.querySelectorAll('.piece');
+                        pieces.forEach((piece, i) => {
+                            oldRects.set(`${r}-${c}-${i}`, piece.getBoundingClientRect());
+                        });
+                        if (cell.classList.contains('decreased')) {
+                            const rect = cell.getBoundingClientRect();
+                            decreasedCellCenters.push({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+                        }
+                    });
+                }
+
                 this.dom.board.innerHTML = '';
                 this.dom.board.style.gridTemplateColumns = `repeat(${boardSize}, 1fr)`;
                 this.dom.board.style.gridTemplateRows = `repeat(${boardSize}, 1fr)`;
@@ -901,6 +1148,9 @@
                     ? this.gameData.moves[this.viewingTurnNumber - 1].board
                     : null;
 
+                // アニメーション対象の新規駒を後で処理するための一覧
+                const newPieceEntries = []; // { el, key, isIncreasedCell }
+
                 for (let r = 0; r < boardSize; r++) {
                     for (let c = 0; c < boardSize; c++) {
                         const cell = document.createElement('div');
@@ -909,27 +1159,103 @@
 
                         // 前のターンと比較して駒の数を比較し、クラスを付与
                         const currentTurnCommittedBoard = this.gameData.moves[this.viewingTurnNumber].board;
+                        let isIncreasedCell = false;
                         if (previousBoardData) {
                             const currentStack = Array.isArray(currentTurnCommittedBoard[r]?.[c]) ? currentTurnCommittedBoard[r][c] : [];
                             const previousStack = Array.isArray(previousBoardData[r]?.[c]) ? previousBoardData[r][c] : [];
                             if (currentStack.length > previousStack.length) {
                                 cell.classList.add('increased');
+                                isIncreasedCell = true;
                             } else if (currentStack.length < previousStack.length) {
                                 cell.classList.add('decreased');
                             }
                         }
-                        
+
                         const stack = Array.isArray(boardData[r]?.[c]) ? boardData[r][c] : [];
                         stack.forEach((pieceColor, i) => {
                             const piece = document.createElement('div');
                             piece.className = `piece ${pieceColor}`;
-                            piece.style.transform = `translateY(${-i * 8}px)`;
+                            const stackOffset = `translateY(${-i * 8}px)`;
+                            piece.style.transform = stackOffset;
                             piece.style.zIndex = i + 1;
                             cell.appendChild(piece);
+
+                            if (animate) {
+                                newPieceEntries.push({ el: piece, key: `${r}-${c}-${i}`, isIncreasedCell, stackOffset });
+                            }
                         });
                         this.dom.board.appendChild(cell);
                     }
                 }
+
+                if (animate && newPieceEntries.length > 0) {
+                    this.animatePieceEntries(newPieceEntries, oldRects, decreasedCellCenters);
+                }
+            }
+
+            /**
+             * FLIPアニメーション本体。
+             * 同じキー(r-c-stackIndex)の駒が前フレームから位置を変えていれば、
+             * 旧位置からnatural位置へtransitionさせる。
+             * 新規に出現した駒（増加マス）は、直近の減少マスからスライドイン、
+             * なければフェード＋スケールインで登場させる。
+             */
+            animatePieceEntries(newPieceEntries, oldRects, decreasedCellCenters) {
+                // まず新しい位置を記録
+                const prepared = newPieceEntries.map(entry => {
+                    const newRect = entry.el.getBoundingClientRect();
+                    const oldRect = oldRects.get(entry.key);
+                    return { ...entry, newRect, oldRect };
+                });
+
+                // FLIPの「invert」ステップ: 旧位置に見えるよう即座に逆変換をかける（transitionなし）
+                prepared.forEach(({ el, oldRect, newRect, isIncreasedCell, stackOffset }) => {
+                    if (oldRect) {
+                        // 既存位置からの移動（同キーのピースが移動した）
+                        const dx = oldRect.left - newRect.left;
+                        const dy = oldRect.top - newRect.top;
+                        if (dx !== 0 || dy !== 0) {
+                            el.style.transform = `translate(${dx}px, ${dy}px) ${stackOffset}`;
+                        }
+                    } else if (isIncreasedCell) {
+                        // 新規出現駒: 直近の減少マス中心からスライドイン、なければフェード
+                        const centerX = newRect.left + newRect.width / 2;
+                        const centerY = newRect.top + newRect.height / 2;
+                        let nearest = null;
+                        let nearestDist = Infinity;
+                        for (const center of decreasedCellCenters) {
+                            const dist = (center.x - centerX) ** 2 + (center.y - centerY) ** 2;
+                            if (dist < nearestDist) { nearestDist = dist; nearest = center; }
+                        }
+                        if (nearest) {
+                            const dx = nearest.x - centerX;
+                            const dy = nearest.y - centerY;
+                            el.style.transform = `translate(${dx}px, ${dy}px) ${stackOffset}`;
+                            el.style.opacity = '0.4';
+                        } else {
+                            el.classList.add('piece-enter-fade');
+                        }
+                    }
+                });
+
+                // 次のフレームでtransitionを有効化し、natural位置へ戻す（play）
+                requestAnimationFrame(() => {
+                    prepared.forEach(({ el, stackOffset }) => {
+                        el.classList.add('piece-flip-transition');
+                        el.style.transform = stackOffset;
+                        el.style.opacity = '';
+                        el.classList.remove('piece-enter-fade');
+                    });
+
+                    // transition終了後にクラス/インラインスタイルの後始末をして次回描画をクリーンにする
+                    setTimeout(() => {
+                        prepared.forEach(({ el, stackOffset }) => {
+                            el.classList.remove('piece-flip-transition');
+                            el.style.transform = stackOffset;
+                            el.style.opacity = '';
+                        });
+                    }, 260);
+                });
             }
 
             updateInfo() {
@@ -1049,6 +1375,41 @@
                     this.dom.exitBtnContainer.style.display = isGameInProgress ? 'none' : 'block';
                 }
                 this.dom.replayControls.style.display = 'flex';
+
+                // --- 投了・引き分け提案セクションの表示制御 ---
+                // 表示: 対局中・最新手閲覧かつ、本当の2人対戦オンライン / CPU / オフライン(ホットシート)のいずれか。
+                const isHotseat = this.isHotseatGame();
+                const showGameActions = isGameInProgress && isViewingLatest &&
+                    (this.isRealOnlineGame() || isHotseat || this.mode === 'cpu');
+                this.dom.gameActionSection.classList.toggle('hidden', !showGameActions);
+
+                // 引き分け提案はCPU戦では非対応（ボタン自体を隠す）
+                this.dom.drawBtn.classList.toggle('hidden', this.mode === 'cpu');
+
+                // 操作できるのは「自分が操作できるターン」のみ。
+                // オフライン(ホットシート)は両プレイヤーが同じ端末を操作するため常に有効。
+                let actionsEnabled = false;
+                if (isHotseat) {
+                    actionsEnabled = true;
+                } else if (this.mode === 'play') {
+                    actionsEnabled = this.getMyColor() === latestState.currentPlayer;
+                } else if (this.mode === 'cpu') {
+                    actionsEnabled = !this.cpuThinking && latestState.currentPlayer === this.humanColor;
+                }
+                if (showGameActions) {
+                    this.dom.resignBtn.disabled = !actionsEnabled;
+                    // オンラインで自分の引き分け提案が保留中の間は「提案中…」表示を維持する
+                    if (!this._myDrawOfferPending) {
+                        this.dom.drawBtn.disabled = !actionsEnabled;
+                    }
+                } else {
+                    this.dom.drawOfferStatus.classList.add('hidden');
+                }
+
+                // --- 再戦ボタンの表示制御 ---
+                // 本当の2人対戦オンライン対局で、対局が終了しており、自分が参加者の場合のみ表示する
+                const showRematch = this.isRealOnlineGame() && this.gameData.meta.status === 'completed' && !!this.getMyColor();
+                this.dom.rematchBtn.classList.toggle('hidden', !showRematch);
             }
 
             highlight() {
@@ -1110,14 +1471,24 @@
                 this.dom.nextMoveBtn.addEventListener('click', () => { if (this.viewingTurnNumber < this.gameData.moves.length - 1) { this.resetUncommittedChanges(); this.viewingTurnNumber++; this.render(); } });
                 this.dom.lastMoveBtn.addEventListener('click', () => { this.resetUncommittedChanges(); this.viewingTurnNumber = this.gameData.moves.length - 1; this.render(); });
 
-                this.dom.copyButtonFooter.addEventListener('click', () => {
-                    if (!this.gameId) return;
-                    navigator.clipboard.writeText(this.gameId).then(() => {
+                this.dom.resignBtn.addEventListener('click', () => this.handleResignClick());
+                this.dom.drawBtn.addEventListener('click', () => this.handleDrawOfferClick());
+                this.dom.rematchBtn.addEventListener('click', () => this.handleRematchClick());
+
+                const copyShareText = (text) => {
+                    if (!text) return;
+                    navigator.clipboard.writeText(text).then(() => {
                         this.dom.copyFeedbackFooter.textContent = 'コピーしました！';
                         setTimeout(() => { this.dom.copyFeedbackFooter.textContent = ''; }, 2000);
-                    }).catch(err => {
+                    }).catch(() => {
                         this.dom.copyFeedbackFooter.textContent = 'コピーに失敗しました。';
                     });
+                };
+                this.dom.copyGameIdButton.addEventListener('click', () => {
+                    copyShareText(this.dom.shareGameId.textContent.trim());
+                });
+                this.dom.copySpectateButton.addEventListener('click', () => {
+                    copyShareText(this.dom.shareSpectateUrl.textContent.trim());
                 });
             }
 
@@ -1680,26 +2051,58 @@
                 return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
             }
             setMessage(msg) { this.dom.message.textContent = msg; }
-            showModal(title, content, onConfirm) {
+            /**
+             * モーダルを表示する。
+             * options.cancelLabel / options.onCancel を指定すると、2ボタン（確認/キャンセル）の
+             * 確認ダイアログとして機能する（例: 投了確認、引き分け提案の承諾/拒否）。
+             */
+            showModal(title, content, onConfirm, options = {}) {
+                const { confirmLabel = 'OK', cancelLabel = null, onCancel = null } = options;
+
+                // 直前の hideModal による遅延クローズをキャンセルし、閉じ状態のクラスも除去する。
+                // （確認モーダル → 次のモーダルを同期的に開くケースで、閉じアニメーションが
+                //  新しいモーダルを消してしまう競合を防ぐ）
+                clearTimeout(this._hideModalTimer);
+                this.dom.modal.classList.remove('hidden', 'opacity-0', 'scale-95');
+
                 this.dom.modalTitle.textContent = title;
                 this.dom.modalContent.innerHTML = content || '';
                 this.dom.modalContent.style.display = content ? 'block' : 'none';
-                
+
                 const newButton = this.dom.modalBtn.cloneNode(true);
                 this.dom.modalBtn.parentNode.replaceChild(newButton, this.dom.modalBtn);
                 this.dom.modalBtn = newButton;
-                
+                this.dom.modalBtn.textContent = confirmLabel;
+
                 this.dom.modalBtn.onclick = () => {
                     this.hideModal();
                     if (onConfirm) onConfirm();
                 };
-                
+
+                const newCancelButton = this.dom.modalCancelBtn.cloneNode(true);
+                this.dom.modalCancelBtn.parentNode.replaceChild(newCancelButton, this.dom.modalCancelBtn);
+                this.dom.modalCancelBtn = newCancelButton;
+
+                if (cancelLabel) {
+                    this.dom.modalCancelBtn.textContent = cancelLabel;
+                    this.dom.modalCancelBtn.classList.remove('hidden');
+                    this.dom.modalCancelBtn.onclick = () => {
+                        this.hideModal();
+                        if (onCancel) onCancel();
+                    };
+                } else {
+                    this.dom.modalCancelBtn.classList.add('hidden');
+                    this.dom.modalCancelBtn.onclick = null;
+                }
+
                 this.dom.modal.classList.remove('hidden');
                 setTimeout(() => this.dom.modal.classList.add('opacity-100', 'scale-100'), 10);
             }
             hideModal() {
                  this.dom.modal.classList.add('opacity-0', 'scale-95');
-                 setTimeout(() => this.dom.modal.classList.add('hidden'), 300);
+                 this.dom.modal.classList.remove('opacity-100', 'scale-100');
+                 clearTimeout(this._hideModalTimer);
+                 this._hideModalTimer = setTimeout(() => this.dom.modal.classList.add('hidden'), 300);
             }
 
             async fetchUserProfile(uid) {
@@ -1708,6 +2111,174 @@
                 const userRef = ref(database, `users/${uid}/profile`);
                 const snapshot = await get(userRef);
                 return snapshot.exists() ? snapshot.val() : null;
+            }
+
+            /**
+             * ローカル対局(CPU/オフライン)の勝敗をその場で確定させる。
+             * winner に null を渡すと引き分けになる。
+             */
+            finalizeLocalOutcome(winner, winReason) {
+                if (this.gameData?.meta?.status !== 'in_progress') return;
+                this.gameData.meta.status = 'completed';
+                this.gameData.meta.winner = winner;
+                this.gameData.meta.winReason = winReason;
+                this.gameData.meta.updatedAt = Date.now();
+                this.handleDataUpdate(this.gameData);
+            }
+
+            // --- 投了 ---
+            handleResignClick() {
+                if (this.gameData?.meta?.status !== 'in_progress') return;
+
+                // オンライン（本当の2人対戦）: サーバー関数で確定
+                if (this.mode === 'play' && this.isRealOnlineGame()) {
+                    this.showModal(
+                        '投了の確認',
+                        '<p>本当に投了しますか？この操作は取り消せません。</p>',
+                        async () => {
+                            this.dom.resignBtn.disabled = true;
+                            try {
+                                await resignGame({ gameId: this.gameId });
+                                // 成功後の画面更新は meta の onValue リスナー経由で自動反映される
+                            } catch (error) {
+                                console.error('Failed to resign:', error);
+                                this.setMessage(error.message || '投了の送信に失敗しました。');
+                                this.dom.resignBtn.disabled = false;
+                            }
+                        },
+                        { confirmLabel: '投了する', cancelLabel: 'キャンセル' }
+                    );
+                    return;
+                }
+
+                // CPU対戦: 人間が投了 → CPUの勝ち（クライアント側で確定）
+                if (this.mode === 'cpu') {
+                    const winner = this.cpuColor;
+                    const winnerLabel = winner === 'white' ? '白' : '黒';
+                    this.showModal(
+                        '投了の確認',
+                        '<p>本当に投了しますか？この操作は取り消せません。</p>',
+                        () => this.finalizeLocalOutcome(winner, `あなたの投了です。${winnerLabel}（CPU）の勝利！`),
+                        { confirmLabel: '投了する', cancelLabel: 'キャンセル' }
+                    );
+                    return;
+                }
+
+                // オフライン(ホットシート): 手番のプレイヤーが投了 → 相手の勝ち
+                // 未ログインlocal・ログイン済みオフライン(保存)の両方に対応
+                if (this.isHotseatGame()) {
+                    const latest = this.gameData.moves[this.gameData.moves.length - 1];
+                    const loser = latest.currentPlayer;
+                    const winner = loser === 'white' ? 'black' : 'white';
+                    const loserLabel = loser === 'white' ? '白' : '黒';
+                    const winnerLabel = winner === 'white' ? '白' : '黒';
+                    this.showModal(
+                        '投了の確認',
+                        `<p>${loserLabel}が投了します。よろしいですか？</p>`,
+                        () => this.finishHotseat(winner, `${loserLabel}が投了しました。${winnerLabel}の勝利！`),
+                        { confirmLabel: '投了する', cancelLabel: 'キャンセル' }
+                    );
+                }
+            }
+
+            // --- 引き分け提案 ---
+            handleDrawOfferClick() {
+                if (this.gameData?.meta?.status !== 'in_progress') return;
+
+                // オンライン（本当の2人対戦）: サーバー関数で提案を送信
+                if (this.mode === 'play' && this.isRealOnlineGame()) {
+                    this.showModal(
+                        '引き分け提案の確認',
+                        '<p>相手に引き分けを提案しますか？</p>',
+                        async () => {
+                            this.dom.drawBtn.disabled = true;
+                            try {
+                                await offerDraw({ gameId: this.gameId });
+                                // 提案中インジケータは drawOffer の onValue リスナー経由で表示される
+                            } catch (error) {
+                                console.error('Failed to offer draw:', error);
+                                this.setMessage(error.message || '引き分け提案の送信に失敗しました。');
+                                this.dom.drawBtn.disabled = false;
+                            }
+                        },
+                        { confirmLabel: '提案する', cancelLabel: 'キャンセル' }
+                    );
+                    return;
+                }
+
+                // オフライン(ホットシート): 手番プレイヤーが提案 → 相手に画面を見せて応答してもらう
+                // 未ログインlocal・ログイン済みオフライン(保存)の両方に対応
+                if (this.isHotseatGame()) {
+                    const latest = this.gameData.moves[this.gameData.moves.length - 1];
+                    const offerer = latest.currentPlayer;
+                    const offererLabel = offerer === 'white' ? '白' : '黒';
+                    const opponentLabel = offerer === 'white' ? '黒' : '白';
+                    this.showModal(
+                        '引き分け提案の確認',
+                        `<p>${offererLabel}が引き分けを提案します。よろしいですか？</p>`,
+                        () => {
+                            // 提案確認後、相手に見せる応答モーダルを表示する
+                            this.showModal(
+                                '引き分けの提案',
+                                `<p>${offererLabel}が引き分けを提案しました。<br>この画面を${opponentLabel}のプレイヤーに見せてください。</p>` +
+                                `<p class="mt-3 font-semibold">${opponentLabel}のプレイヤー：引き分けを承諾しますか？</p>`,
+                                () => this.finishHotseat(null, '合意により引き分けとなりました。'),
+                                { confirmLabel: '承諾する', cancelLabel: '拒否する' }
+                            );
+                        },
+                        { confirmLabel: '提案する', cancelLabel: 'キャンセル' }
+                    );
+                }
+                // CPU対戦は引き分け提案に非対応（ボタン自体を非表示にしている）
+            }
+
+            // --- 再戦 ---
+            async handleRematchClick() {
+                if (this._rematchInProgress) return;
+                if (!this.isRealOnlineGame()) return;
+                const myColor = this.getMyColor();
+                if (!myColor) return;
+
+                const { uid: opponentUid } = this.getOpponentInfo();
+                if (!opponentUid) {
+                    this.setMessage('相手の情報が取得できませんでした。');
+                    return;
+                }
+
+                this._rematchInProgress = true;
+                this.dom.rematchBtn.disabled = true;
+                const originalLabel = this.dom.rematchBtn.textContent;
+                this.dom.rematchBtn.textContent = '作成中…';
+
+                try {
+                    const gameSettings = this.gameData.meta.gameSettings;
+                    const settings = {
+                        gameType: 'online',
+                        boardSize: Number(gameSettings.boardSize),
+                        // 前回と色を入れ替えて対戦する
+                        playerColor: myColor === 'white' ? 'black' : 'white',
+                    };
+
+                    if (gameSettings.timeControl && gameSettings.timeControl.enabled) {
+                        settings['time-control-enabled'] = 'on';
+                        // サーバー側は秒単位、createGameは分単位（整数）を期待する
+                        settings.timeLimit = Math.round(Number(gameSettings.timeControl.timeLimit) / 60);
+                        settings.delay = Number(gameSettings.timeControl.delay);
+                    }
+
+                    const res = await createGame(settings);
+                    const newGameId = res.data.gameId;
+
+                    await createInvitation({ gameId: newGameId, targetUid: opponentUid });
+
+                    window.location.href = 'waiting.html?id=' + newGameId;
+                } catch (error) {
+                    console.error('Failed to create rematch:', error);
+                    this.setMessage(error.message || '再戦の作成に失敗しました。');
+                    this.dom.rematchBtn.disabled = false;
+                    this.dom.rematchBtn.textContent = originalLabel;
+                    this._rematchInProgress = false;
+                }
             }
         }
         

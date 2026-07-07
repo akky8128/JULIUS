@@ -8,10 +8,37 @@ import {simulateTurn, checkWinCondition, normalizeBoard, computeTimersAfterTurn,
 const MAX_ACTIONS_PER_TURN = 64;
 const MAX_NICKNAME_LENGTH = 50;
 const MAX_BIO_LENGTH = 300;
+const GAME_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const GAME_CODE_LENGTH = 6;
+const GAME_CODE_MAX_ATTEMPTS = 8;
 
 function toMovesArray(moves) {
   if (!moves) return [];
   return Array.isArray(moves) ? moves : Object.values(moves);
+}
+
+/**
+ * ランダムな短い対局コードを生成し、/gameCodes/{code} に予約する。
+ * トランザクションで衝突を検出し、既存コードとぶつかった場合は再試行する。
+ *
+ * @param {object} db Firebase Admin Database インスタンス
+ * @param {string} gameId 紐付け先のゲームID
+ * @returns {Promise<string>} 予約済みの対局コード
+ */
+async function generateUniqueGameCode(db, gameId) {
+  for (let attempt = 0; attempt < GAME_CODE_MAX_ATTEMPTS; attempt++) {
+    let code = "";
+    for (let i = 0; i < GAME_CODE_LENGTH; i++) {
+      code += GAME_CODE_ALPHABET[Math.floor(Math.random() * GAME_CODE_ALPHABET.length)];
+    }
+    const codeRef = db.ref(`/gameCodes/${code}`);
+    // eslint-disable-next-line no-await-in-loop
+    const txResult = await codeRef.transaction((existing) => existing === null ? gameId : undefined);
+    if (txResult.committed && txResult.snapshot.val() === gameId) {
+      return code;
+    }
+  }
+  throw new HttpsError("internal", "Failed to allocate a game code.");
 }
 
 admin.initializeApp({
@@ -141,6 +168,13 @@ export const createGame = onCall(async (request) => {
   };
 
   const db = admin.database();
+
+  let gameCode = null;
+  if (settings.gameType === "online") {
+    gameCode = await generateUniqueGameCode(db, gameId);
+    gameData.meta.gameCode = gameCode;
+  }
+
   await db.ref(`/games/${gameId}`).set(gameData);
 
   if (settings.gameType === "offline" || settings.gameType === "cpu") {
@@ -150,7 +184,7 @@ export const createGame = onCall(async (request) => {
     await db.ref().update(updates);
   }
 
-  return {gameId};
+  return {gameId, gameCode};
 });
 
 
@@ -161,13 +195,24 @@ export const joinGame = onCall(async (request) => {
   }
 
   const joinerUid = request.auth.uid;
-  const gameId = request.data.gameId;
+  let gameId = request.data?.gameId;
+  const code = request.data?.code;
 
-  if (!gameId) {
+  const db = admin.database();
+
+  if (!gameId && typeof code === "string") {
+    const normalizedCode = code.trim().toUpperCase();
+    const idSnap = await db.ref(`/gameCodes/${normalizedCode}`).once("value");
+    if (!idSnap.exists()) {
+      throw new HttpsError("not-found", "The specified game does not exist.");
+    }
+    gameId = idSnap.val();
+  }
+
+  if (!gameId || typeof gameId !== "string") {
     throw new HttpsError("invalid-argument", "gameId is required.");
   }
 
-  const db = admin.database();
   const gameRef = db.ref(`/games/${gameId}`);
   const gameSnapshot = await gameRef.once("value");
 
@@ -225,10 +270,13 @@ export const joinGame = onCall(async (request) => {
   updates[`/users/${joinerUid}/games/${gameId}`] = now;
   updates[`/users/${creatorUid}/profile/gamesPlayed`] = admin.database.ServerValue.increment(1);
   updates[`/users/${joinerUid}/profile/gamesPlayed`] = admin.database.ServerValue.increment(1);
+  if (gameData.meta.gameCode) {
+    updates[`/gameCodes/${gameData.meta.gameCode}`] = null;
+  }
 
   await db.ref().update(updates);
 
-  return {success: true};
+  return {success: true, gameId};
 });
 
 
@@ -427,6 +475,7 @@ export const submitMove = onCall(async (request) => {
     timestamp: Date.now(),
   };
   postUpdates[`/games/${gameId}/meta/updatedAt`] = Date.now();
+  postUpdates[`/games/${gameId}/drawOffer`] = null;
   if (winner) {
     postUpdates[`/games/${gameId}/meta/status`] = "completed";
     postUpdates[`/games/${gameId}/meta/winner`] = winner;
@@ -571,6 +620,402 @@ export const claimTimeout = onCall(async (request) => {
   await db.ref().update(postUpdates);
 
   return {success: true, winner: outcome.winner};
+});
+
+
+// --- (4b) 投了 ---
+
+/**
+ * current ノードに対して投了のトランザクションを実行する。
+ *
+ * @param {object} db Firebase Admin Database インスタンス
+ * @param {string} gameId ゲームID
+ * @param {string} uid 呼び出しユーザーの UID
+ * @param {object} meta meta ノードの値
+ * @returns {{ txResult, validationError, outcome }}
+ */
+async function runResignTransaction(db, gameId, uid, meta) {
+  const currentRef = db.ref(`/games/${gameId}/current`);
+  let validationError = null;
+  let outcome = null;
+
+  const txResult = await currentRef.transaction((currentData) => {
+    validationError = null;
+    outcome = null;
+
+    if (!currentData) {
+      return null;
+    }
+
+    if (currentData.status !== "in_progress") {
+      validationError = new HttpsError("failed-precondition", "This game is not in progress.");
+      return undefined;
+    }
+
+    const players = meta.players;
+    if (uid !== players.white && uid !== players.black) {
+      validationError = new HttpsError("permission-denied", "You are not a participant in this game.");
+      return undefined;
+    }
+
+    if (players.white === players.black) {
+      validationError = new HttpsError("failed-precondition", "Resignation is not available in this game.");
+      return undefined;
+    }
+
+    const loserColor = uid === players.white ? "white" : "black";
+    const winner = loserColor === "white" ? "black" : "white";
+    const winReason = `${loserColor === "white" ? "白" : "黒"}が投了しました。`;
+    outcome = {winner, winReason};
+
+    return {...currentData, status: "completed"};
+  });
+
+  return {txResult, validationError, outcome};
+}
+
+export const resignGame = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication is required.");
+  }
+
+  const uid = request.auth.uid;
+  const {gameId} = request.data || {};
+  if (!gameId || typeof gameId !== "string") {
+    throw new HttpsError("invalid-argument", "gameId is required.");
+  }
+
+  const db = admin.database();
+
+  const metaSnap = await db.ref(`/games/${gameId}/meta`).once("value");
+  if (!metaSnap.exists()) {
+    throw new HttpsError("not-found", "The specified game does not exist.");
+  }
+  const meta = metaSnap.val();
+
+  let {txResult, validationError, outcome} = await runResignTransaction(
+    db, gameId, uid, meta,
+  );
+
+  // レガシーフォールバック: current がない旧スキーマのゲームに対応する。
+  if (!validationError && txResult.committed && txResult.snapshot.val() === null) {
+    const movesSnap = await db.ref(`/games/${gameId}/moves`).once("value");
+    if (movesSnap.exists()) {
+      const movesArr = toMovesArray(movesSnap.val());
+      const lastMove = movesArr[movesArr.length - 1];
+      const synthesized = {
+        turnNumber: lastMove.turnNumber,
+        currentPlayer: lastMove.currentPlayer,
+        board: lastMove.board,
+        summonCounts: lastMove.summonCounts,
+        timers: lastMove.timers,
+        timestamp: lastMove.timestamp,
+        status: meta.status,
+      };
+      const currentRef = db.ref(`/games/${gameId}/current`);
+      await currentRef.transaction((existing) => existing === null ? synthesized : undefined);
+      ({txResult, validationError, outcome} = await runResignTransaction(
+        db, gameId, uid, meta,
+      ));
+    } else {
+      throw new HttpsError("not-found", "The specified game does not exist.");
+    }
+  }
+
+  if (validationError) {
+    throw validationError;
+  }
+  if (!txResult.committed) {
+    throw new HttpsError("aborted", "Failed to resign. Please try again.");
+  }
+
+  const {winner, winReason} = outcome;
+  const postUpdates = {};
+  postUpdates[`/games/${gameId}/meta/status`] = "completed";
+  postUpdates[`/games/${gameId}/meta/winner`] = winner;
+  postUpdates[`/games/${gameId}/meta/winReason`] = winReason;
+  postUpdates[`/games/${gameId}/meta/updatedAt`] = Date.now();
+  postUpdates[`/games/${gameId}/drawOffer`] = null;
+  await db.ref().update(postUpdates);
+
+  return {success: true, winner: outcome.winner};
+});
+
+
+// --- (4c) 引き分け提案 ---
+export const offerDraw = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication is required.");
+  }
+
+  const uid = request.auth.uid;
+  const {gameId} = request.data || {};
+  if (!gameId || typeof gameId !== "string") {
+    throw new HttpsError("invalid-argument", "gameId is required.");
+  }
+
+  const db = admin.database();
+  const metaSnap = await db.ref(`/games/${gameId}/meta`).once("value");
+  if (!metaSnap.exists()) {
+    throw new HttpsError("not-found", "The specified game does not exist.");
+  }
+  const meta = metaSnap.val();
+
+  if (meta.status !== "in_progress") {
+    throw new HttpsError("failed-precondition", "This game is not in progress.");
+  }
+
+  const players = meta.players;
+  if (uid !== players.white && uid !== players.black) {
+    throw new HttpsError("permission-denied", "You are not a participant in this game.");
+  }
+  if (players.white === players.black) {
+    throw new HttpsError("failed-precondition", "Draw offers are not available in this game.");
+  }
+
+  const offererColor = uid === players.white ? "white" : "black";
+
+  const drawOfferSnap = await db.ref(`/games/${gameId}/drawOffer`).once("value");
+  if (drawOfferSnap.exists()) {
+    throw new HttpsError("failed-precondition", "A draw offer is already pending.");
+  }
+
+  await db.ref(`/games/${gameId}/drawOffer`).set({
+    byColor: offererColor,
+    byUid: uid,
+    timestamp: admin.database.ServerValue.TIMESTAMP,
+  });
+
+  return {success: true};
+});
+
+
+// --- (4d) 引き分け提案への応答 ---
+
+/**
+ * current ノードに対して引き分け成立のトランザクションを実行する。
+ *
+ * @param {object} db Firebase Admin Database インスタンス
+ * @param {string} gameId ゲームID
+ * @param {object} meta meta ノードの値
+ * @returns {{ txResult, validationError }}
+ */
+async function runDrawAgreeTransaction(db, gameId, meta) {
+  const currentRef = db.ref(`/games/${gameId}/current`);
+  let validationError = null;
+
+  const txResult = await currentRef.transaction((currentData) => {
+    validationError = null;
+
+    if (!currentData) {
+      return null;
+    }
+
+    if (currentData.status !== "in_progress") {
+      validationError = new HttpsError("failed-precondition", "This game is not in progress.");
+      return undefined;
+    }
+
+    return {...currentData, status: "completed"};
+  });
+
+  return {txResult, validationError};
+}
+
+export const respondDraw = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication is required.");
+  }
+
+  const uid = request.auth.uid;
+  const {gameId, accept} = request.data || {};
+  if (!gameId || typeof gameId !== "string") {
+    throw new HttpsError("invalid-argument", "gameId is required.");
+  }
+  if (typeof accept !== "boolean") {
+    throw new HttpsError("invalid-argument", "accept must be a boolean.");
+  }
+
+  const db = admin.database();
+  const [metaSnap, drawOfferSnap] = await Promise.all([
+    db.ref(`/games/${gameId}/meta`).once("value"),
+    db.ref(`/games/${gameId}/drawOffer`).once("value"),
+  ]);
+  if (!metaSnap.exists()) {
+    throw new HttpsError("not-found", "The specified game does not exist.");
+  }
+  const meta = metaSnap.val();
+
+  if (!drawOfferSnap.exists()) {
+    throw new HttpsError("failed-precondition", "No draw offer to respond to.");
+  }
+  const drawOffer = drawOfferSnap.val();
+
+  const players = meta.players;
+  if (uid !== players.white && uid !== players.black) {
+    throw new HttpsError("permission-denied", "You are not a participant in this game.");
+  }
+  if (drawOffer.byUid === uid) {
+    throw new HttpsError("failed-precondition", "You cannot respond to your own draw offer.");
+  }
+
+  if (accept !== true) {
+    await db.ref(`/games/${gameId}/drawOffer`).remove();
+    return {success: true, drawAgreed: false};
+  }
+
+  let {txResult, validationError} = await runDrawAgreeTransaction(db, gameId, meta);
+
+  // レガシーフォールバック: current がない旧スキーマのゲームに対応する。
+  if (!validationError && txResult.committed && txResult.snapshot.val() === null) {
+    const movesSnap = await db.ref(`/games/${gameId}/moves`).once("value");
+    if (movesSnap.exists()) {
+      const movesArr = toMovesArray(movesSnap.val());
+      const lastMove = movesArr[movesArr.length - 1];
+      const synthesized = {
+        turnNumber: lastMove.turnNumber,
+        currentPlayer: lastMove.currentPlayer,
+        board: lastMove.board,
+        summonCounts: lastMove.summonCounts,
+        timers: lastMove.timers,
+        timestamp: lastMove.timestamp,
+        status: meta.status,
+      };
+      const currentRef = db.ref(`/games/${gameId}/current`);
+      await currentRef.transaction((existing) => existing === null ? synthesized : undefined);
+      ({txResult, validationError} = await runDrawAgreeTransaction(db, gameId, meta));
+    } else {
+      throw new HttpsError("not-found", "The specified game does not exist.");
+    }
+  }
+
+  if (validationError) {
+    throw validationError;
+  }
+  if (!txResult.committed) {
+    throw new HttpsError("aborted", "Failed to finalize the draw. Please try again.");
+  }
+
+  const postUpdates = {};
+  postUpdates[`/games/${gameId}/meta/status`] = "completed";
+  postUpdates[`/games/${gameId}/meta/winner`] = null;
+  postUpdates[`/games/${gameId}/meta/winReason`] = "合意により引き分けが成立しました。";
+  postUpdates[`/games/${gameId}/meta/updatedAt`] = Date.now();
+  postUpdates[`/games/${gameId}/drawOffer`] = null;
+  await db.ref().update(postUpdates);
+
+  return {success: true, drawAgreed: true};
+});
+
+
+// --- (4e) オフライン(ホットシート)対局の終了（投了 / 引き分け合意） ---
+
+/**
+ * current ノードを completed にするトランザクション（レガシーフォールバック付き）。
+ *
+ * @param {object} db Firebase Admin Database インスタンス
+ * @param {string} gameId ゲームID
+ * @param {object} meta meta ノードの値
+ * @returns {{ txResult, validationError }}
+ */
+async function runOfflineEndTransaction(db, gameId, meta) {
+  const currentRef = db.ref(`/games/${gameId}/current`);
+  let validationError = null;
+
+  const txResult = await currentRef.transaction((currentData) => {
+    validationError = null;
+    if (!currentData) {
+      return null;
+    }
+    if (currentData.status !== "in_progress") {
+      validationError = new HttpsError("failed-precondition", "This game is not in progress.");
+      return undefined;
+    }
+    return {...currentData, status: "completed"};
+  });
+
+  return {txResult, validationError};
+}
+
+/**
+ * オフライン(ホットシート)対局を投了/引き分けで終了させる。
+ * 白と黒が同一ユーザー（= 同一端末の2人対戦）の対局のみ許可する。
+ * result: "white" | "black" | "draw" （勝者の色、または引き分け）
+ */
+export const endOfflineGame = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication is required.");
+  }
+  const uid = request.auth.uid;
+  const {gameId, result} = request.data || {};
+  if (!gameId || typeof gameId !== "string") {
+    throw new HttpsError("invalid-argument", "gameId is required.");
+  }
+  if (!["white", "black", "draw"].includes(result)) {
+    throw new HttpsError("invalid-argument", "result must be 'white', 'black', or 'draw'.");
+  }
+
+  const db = admin.database();
+  const metaSnap = await db.ref(`/games/${gameId}/meta`).once("value");
+  if (!metaSnap.exists()) {
+    throw new HttpsError("not-found", "The specified game does not exist.");
+  }
+  const meta = metaSnap.val();
+  const players = meta.players || {};
+
+  // オフライン対局のみ: 白と黒が同一ユーザーで、かつ呼び出し者本人であること。
+  if (players.white !== players.black || uid !== players.white) {
+    throw new HttpsError("permission-denied", "This operation is only allowed for your own offline game.");
+  }
+
+  let {txResult, validationError} = await runOfflineEndTransaction(db, gameId, meta);
+
+  // レガシーフォールバック: current がない旧スキーマのゲームに対応する。
+  if (!validationError && txResult.committed && txResult.snapshot.val() === null) {
+    const movesSnap = await db.ref(`/games/${gameId}/moves`).once("value");
+    if (movesSnap.exists()) {
+      const movesArr = toMovesArray(movesSnap.val());
+      const lastMove = movesArr[movesArr.length - 1];
+      const synthesized = {
+        turnNumber: lastMove.turnNumber,
+        currentPlayer: lastMove.currentPlayer,
+        board: lastMove.board,
+        summonCounts: lastMove.summonCounts,
+        timers: lastMove.timers,
+        timestamp: lastMove.timestamp,
+        status: meta.status,
+      };
+      const currentRef = db.ref(`/games/${gameId}/current`);
+      await currentRef.transaction((existing) => existing === null ? synthesized : undefined);
+      ({txResult, validationError} = await runOfflineEndTransaction(db, gameId, meta));
+    } else {
+      throw new HttpsError("not-found", "The specified game does not exist.");
+    }
+  }
+
+  if (validationError) {
+    throw validationError;
+  }
+  if (!txResult.committed) {
+    throw new HttpsError("aborted", "Failed to end the game. Please try again.");
+  }
+
+  const winner = result === "draw" ? null : result;
+  const winnerLabel = result === "white" ? "白" : "黒";
+  const loserLabel = result === "white" ? "黒" : "白";
+  const winReason = result === "draw" ?
+    "合意により引き分けとなりました。" :
+    `${loserLabel}が投了しました。${winnerLabel}の勝利！`;
+
+  const postUpdates = {};
+  postUpdates[`/games/${gameId}/meta/status`] = "completed";
+  postUpdates[`/games/${gameId}/meta/winner`] = winner;
+  postUpdates[`/games/${gameId}/meta/winReason`] = winReason;
+  postUpdates[`/games/${gameId}/meta/updatedAt`] = Date.now();
+  postUpdates[`/games/${gameId}/drawOffer`] = null;
+  await db.ref().update(postUpdates);
+
+  return {success: true, winner};
 });
 
 
@@ -755,7 +1200,11 @@ export const cleanupGhostGames = onSchedule("every day 03:00", async () => {
 
   if (abandonedSnapshot.exists()) {
     abandonedSnapshot.forEach((gameSnap) => {
-      updates[gameSnap.key] = null;
+      const gameData = gameSnap.val();
+      updates[`/games/${gameSnap.key}`] = null;
+      if (gameData.meta?.gameCode) {
+        updates[`/gameCodes/${gameData.meta.gameCode}`] = null;
+      }
     });
   }
 
@@ -763,13 +1212,16 @@ export const cleanupGhostGames = onSchedule("every day 03:00", async () => {
     waitingSnapshot.forEach((gameSnap) => {
       const gameData = gameSnap.val();
       if (gameData.meta?.createdAt && gameData.meta.createdAt < fiveMinutesAgo) {
-        updates[gameSnap.key] = null;
+        updates[`/games/${gameSnap.key}`] = null;
+        if (gameData.meta?.gameCode) {
+          updates[`/gameCodes/${gameData.meta.gameCode}`] = null;
+        }
       }
     });
   }
 
   if (Object.keys(updates).length > 0) {
-    await gamesRef.update(updates);
+    await db.ref().update(updates);
     console.log(`Deleted ${Object.keys(updates).length} ghost games.`);
   }
 
