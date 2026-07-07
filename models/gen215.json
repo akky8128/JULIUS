@@ -1,6 +1,6 @@
 {
   "format": "nnue-ukeja-v1",
-  "generation": 115,
+  "generation": 215,
   "boardSize": 4,
   "featureDim": 256,
   "scalarDim": 9,
@@ -76,12 +76,12 @@
   "train": {
     "dataFile": "tools/nnue/data/gen011_9.jsonl",
     "numRecords": 1917640,
-    "valLoss": 0.034502267837524414,
-    "trainLoss": 0.03300361839974705,
-    "epochsRun": 18,
-    "bestEpoch": 8,
+    "valLoss": 0.034379132091999054,
+    "trainLoss": 0.03301695300623079,
+    "epochsRun": 20,
+    "bestEpoch": 10,
     "device": "mps",
-    "seed": 2,
+    "seed": 3,
     "splitBy": "pid",
     "numTrainPositions": 168372,
     "numValPositions": 18708

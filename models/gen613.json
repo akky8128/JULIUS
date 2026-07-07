@@ -1,6 +1,6 @@
 {
   "format": "nnue-ukeja-v1",
-  "generation": 115,
+  "generation": 613,
   "boardSize": 4,
   "featureDim": 256,
   "scalarDim": 9,
@@ -74,16 +74,16 @@
     }
   ],
   "train": {
-    "dataFile": "tools/nnue/data/gen011_9.jsonl",
-    "numRecords": 1917640,
-    "valLoss": 0.034502267837524414,
-    "trainLoss": 0.03300361839974705,
-    "epochsRun": 18,
-    "bestEpoch": 8,
+    "dataFile": "tools/nnue/data/gen013.jsonl",
+    "numRecords": 509216,
+    "valLoss": 0.034950513392686844,
+    "trainLoss": 0.030707304701375747,
+    "epochsRun": 28,
+    "bestEpoch": 18,
     "device": "mps",
-    "seed": 2,
+    "seed": 7,
     "splitBy": "pid",
-    "numTrainPositions": 168372,
-    "numValPositions": 18708
+    "numTrainPositions": 6001,
+    "numValPositions": 667
   }
 }

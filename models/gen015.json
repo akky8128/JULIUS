@@ -3,12 +3,12 @@
   "generation": 15,
   "boardSize": 4,
   "featureDim": 256,
-  "scalarDim": 4,
+  "scalarDim": 9,
   "maxDepth": 8,
   "hidden": [
-    64,
-    16,
-    16
+    96,
+    24,
+    24
   ],
   "concatScalarsAfterLayer": 1,
   "activation": "clipped_relu",
@@ -23,47 +23,47 @@
     {
       "name": "W1",
       "shape": [
-        64,
+        96,
         256
       ]
     },
     {
       "name": "b1",
       "shape": [
-        64
+        96
       ]
     },
     {
       "name": "W2",
       "shape": [
-        16,
-        68
+        24,
+        105
       ]
     },
     {
       "name": "b2",
       "shape": [
-        16
+        24
       ]
     },
     {
       "name": "W3",
       "shape": [
-        16,
-        16
+        24,
+        24
       ]
     },
     {
       "name": "b3",
       "shape": [
-        16
+        24
       ]
     },
     {
       "name": "W4",
       "shape": [
         1,
-        16
+        24
       ]
     },
     {
@@ -74,16 +74,16 @@
     }
   ],
   "train": {
-    "dataFile": "tools/nnue/data/gen006.jsonl",
-    "numRecords": 1014816,
-    "valLoss": 0.03510662168264389,
-    "trainLoss": 0.03284669388849966,
-    "epochsRun": 34,
-    "bestEpoch": 24,
+    "dataFile": "tools/nnue/data/gen011_9.jsonl",
+    "numRecords": 1917640,
+    "valLoss": 0.03443271666765213,
+    "trainLoss": 0.032727171098237404,
+    "epochsRun": 26,
+    "bestEpoch": 16,
     "device": "mps",
     "seed": 1,
     "splitBy": "pid",
-    "numTrainPositions": 114167,
-    "numValPositions": 12685
+    "numTrainPositions": 168372,
+    "numValPositions": 18708
   }
 }

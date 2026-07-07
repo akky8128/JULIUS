@@ -23,9 +23,17 @@ export const MAX_DEPTH = 8;
 /**
  * スカラー特徴の個数。
  * [0] POV側の残サモン数(正規化), [1] 相手側の残サモン数(正規化),
- * [2] サモンフェーズ終了フラグ, [3] 空セル率
+ * [2] サモンフェーズ終了フラグ, [3] 空セル率,
+ * [4] トップ数差(my-opp)/numCells, [5] 埋めコマ数差/numCells,
+ * [6] エリミネート機会数差/numCells, [7] モビリティ差/numCells,
+ * [8] マテリアル差/(2*maxSummons)
+ *
+ * [4]〜[8] は evaluate.js のヒューリスティック項を POV 相対の差分として供給する。
+ * 盤面 one-hot からは間接的にしか学べない構造知識（トップ支配・埋め・除去機会・
+ * 機動力・物量）を明示的に渡す狙い。いずれも盤面全体の集計量なので D4 対称変換で
+ * 不変であり、augment 展開時に sym 間で使い回して問題ない。
  */
-export const SCALAR_DIM = 4;
+export const SCALAR_DIM = 9;
 
 /**
  * D4群（正方形の対称変換）の要素数。
@@ -82,6 +90,12 @@ export function extractFeatures(state, povPlayer) {
   const indices = [];
   let emptyCellCount = 0;
 
+  // ── ヒューリスティック集計量（POV 相対, evaluate.js と同じ定義）──
+  let myTop = 0, oppTop = 0;
+  let myBuried = 0, oppBuried = 0;        // 自トップ下に埋まっている相手コマ数（およびその逆）
+  let myElim = 0, oppElim = 0;            // 相手コマを埋めている（=除去機会のある）セル数
+  let myMobility = 0, oppMobility = 0;    // トップ連続同色枚数の合計
+
   for (let r = 0; r < boardSize; r++) {
     const row = board ? board[r] : undefined;
     for (let c = 0; c < boardSize; c++) {
@@ -97,14 +111,43 @@ export function extractFeatures(state, povPlayer) {
         const color = piece === povPlayer ? 0 : 1;
         indices.push(cellBase + depthClipped * 2 + color);
       }
+
+      // ── 集計（evaluate.js の単一パス集計を POV 相対で再現）──
+      const top = stack[stack.length - 1];
+      const owner = top === povPlayer ? "me" : "opp";
+      // トップ連続同色枚数
+      let run = 0;
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i] === top) run++; else break;
+      }
+      // トップ下に埋まっている「相手側（top から見た敵）」コマ数
+      const foe = top === povPlayer ? oppPlayer : povPlayer;
+      let buried = 0;
+      for (let i = stack.length - 2; i >= 0; i--) {
+        if (stack[i] === foe) buried++;
+      }
+      if (owner === "me") {
+        myTop++; myMobility += run; myBuried += buried; if (buried > 0) myElim++;
+      } else {
+        oppTop++; oppMobility += run; oppBuried += buried; if (buried > 0) oppElim++;
+      }
     }
   }
+
+  const numCells = boardSize * boardSize;
+  const myMaterial = myTop + myBuried + (maxS - summonCounts[povPlayer]);
+  const oppMaterial = oppTop + oppBuried + (maxS - summonCounts[oppPlayer]);
 
   const scalars = new Array(SCALAR_DIM);
   scalars[0] = (maxS - summonCounts[povPlayer]) / maxS;
   scalars[1] = (maxS - summonCounts[oppPlayer]) / maxS;
   scalars[2] = (summonCounts.white === maxS && summonCounts.black === maxS) ? 1 : 0;
-  scalars[3] = emptyCellCount / (boardSize * boardSize);
+  scalars[3] = emptyCellCount / numCells;
+  scalars[4] = (myTop - oppTop) / numCells;
+  scalars[5] = (myBuried - oppBuried) / numCells;
+  scalars[6] = (myElim - oppElim) / numCells;
+  scalars[7] = (myMobility - oppMobility) / numCells;
+  scalars[8] = (myMaterial - oppMaterial) / (2 * maxS);
 
   return { indices, scalars };
 }
