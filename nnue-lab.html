@@ -147,7 +147,7 @@
             <h2 class="font-bold text-lg mb-2">開発用可視化パネル</h2>
 
             <div class="mb-3">
-                <p class="text-xs text-gray-500 mb-1">評価バー（白視点に正規化。evaluate(state, currentPlayer, WEIGHTS) を静的評価）</p>
+                <p class="text-xs text-gray-500 mb-1">評価バー（白視点に正規化。選択中エンジンに追随: NNUE選択時は白勝率、heuristic選択時は evaluate(WEIGHTS) スコア）</p>
                 <div id="eval-bar-track">
                     <div id="eval-bar-white" style="width:50%"></div>
                     <div id="eval-bar-label">0</div>
@@ -196,6 +196,25 @@
         import { simulateTurn, checkWinCondition, normalizeBoard, maxSummonsFor } from './js/gameLogic.js';
         import { generateTurns } from './js/ai/moveGen.js';
         import { evaluate, WEIGHTS } from './js/ai/evaluate.js';
+        import { createNetworkFromBuffer } from './js/ai/nnue/network.js';
+
+        // ─── 評価バー用 NNUE ネットワークのロード（メインスレッド・キャッシュ付き） ───
+        // Worker と同じ .json/.bin を fetch して構築する。探索は Worker 側で行うが、
+        // 評価バーは局面 1 つの静的評価だけなのでメインスレッドで直接評価する。
+        const evalNetCache = new Map(); // path(.json) -> Promise<network>
+        function loadEvalNet(jsonPath) {
+            const normalized = jsonPath.replace(/\.bin$/, '.json');
+            let cached = evalNetCache.get(normalized);
+            if (cached) return cached;
+            const jsonUrl = new URL(normalized, location.origin).href;
+            const binUrl = jsonUrl.replace(/\.json$/, '.bin');
+            cached = Promise.all([
+                fetch(jsonUrl).then((r) => { if (!r.ok) throw new Error(`モデルJSON取得失敗: ${normalized} (${r.status})`); return r.json(); }),
+                fetch(binUrl).then((r) => { if (!r.ok) throw new Error(`モデル重み取得失敗: ${binUrl} (${r.status})`); return r.arrayBuffer(); }),
+            ]).then(([meta, buf]) => createNetworkFromBuffer(buf, meta));
+            evalNetCache.set(normalized, cached);
+            return cached;
+        }
 
         // ───────────────────────── DOM 参照 ─────────────────────────
         const dom = {
@@ -371,8 +390,12 @@
                     this.cpuLevel = this.readCpuLevel();
                     this.nnueNetPath = this.readNnueNet();
                     this.syncNnueModelVisibility();
+                    if (this.currentTurnState) this.renderDevPanel(); // 評価バーを選択エンジンに追随
                 });
-                dom.nnueModelSel.addEventListener('change', () => { this.nnueNetPath = this.readNnueNet(); });
+                dom.nnueModelSel.addEventListener('change', () => {
+                    this.nnueNetPath = this.readNnueNet();
+                    if (this.currentTurnState) this.renderDevPanel(); // 評価バーを選択モデルに追随
+                });
                 dom.timeBudgetRange.addEventListener('change', () => { this.timeBudgetMs = parseInt(dom.timeBudgetRange.value, 10) || 1000; });
                 dom.spectateCheckbox.addEventListener('change', () => {
                     this.spectateMode = dom.spectateCheckbox.checked;
@@ -874,21 +897,69 @@
                 dom.endTurnBtn.classList.toggle('hidden', !(interactive && hasUncommittedAction));
             }
 
+            // 評価バーを描画する。選択中のエンジンに追随:
+            //  - NNUE モデル選択時: net.evaluateState で白視点の評価（勝率）を表示。
+            //  - それ以外（heuristic level1/2/3）: 従来の evaluate(WEIGHTS)。
+            // NNUE ネットのロードは非同期・キャッシュ付き。未ロード中は heuristic を
+            // 暫定表示し、ロード完了後にこの局面が最新なら再描画する。
+            updateEvalBar(state) {
+                const netPath = this.nnueNetPath;
+                if (netPath) {
+                    const net = this.resolvedEvalNets && this.resolvedEvalNets[netPath];
+                    if (net) {
+                        // 白視点の生スコア（logit）→ シグモイドで白勝率へ
+                        const whiteLogit = net.evaluateState(state, 'white');
+                        const prob = 1 / (1 + Math.exp(-whiteLogit));
+                        dom.evalBarWhite.style.width = `${(prob * 100).toFixed(1)}%`;
+                        dom.evalBarLabel.textContent = `NNUE 白勝率: ${(prob * 100).toFixed(1)}%`;
+                        return;
+                    }
+                    // 未ロード: ロードを開始し、完了後に最新局面なら再描画
+                    this.ensureEvalNetLoaded(netPath);
+                    // 暫定表示（heuristic）
+                    this.renderHeuristicBar(state, ' (NNUE読込中…)');
+                    return;
+                }
+                this.renderHeuristicBar(state, '');
+            }
+
+            // heuristic 評価でバーを描画する（白視点に正規化）。
+            renderHeuristicBar(state, suffix) {
+                const rawScore = evaluate(state, state.currentPlayer, WEIGHTS);
+                const whiteScore = state.currentPlayer === 'white' ? rawScore : -rawScore;
+                const pct = 100 / (1 + Math.exp(-whiteScore / 20));
+                dom.evalBarWhite.style.width = `${pct.toFixed(1)}%`;
+                dom.evalBarLabel.textContent = `heuristic 白視点: ${whiteScore.toFixed(1)}${suffix || ''}`;
+            }
+
+            // NNUE ネットを（キャッシュ経由で）ロードし、完了後に再描画をトリガする。
+            ensureEvalNetLoaded(netPath) {
+                if (!this.resolvedEvalNets) this.resolvedEvalNets = {};
+                if (this._evalNetLoading === netPath) return; // 二重ロード防止
+                this._evalNetLoading = netPath;
+                loadEvalNet(netPath)
+                    .then((net) => {
+                        this.resolvedEvalNets[netPath] = net;
+                        this._evalNetLoading = null;
+                        // まだ同じモデルが選択されていれば再描画
+                        if (this.nnueNetPath === netPath) this.renderDevPanel();
+                    })
+                    .catch((err) => {
+                        this._evalNetLoading = null;
+                        console.error('評価バー用NNUEロード失敗:', err);
+                        dom.evalBarLabel.textContent = 'NNUE読込エラー（heuristic表示）';
+                    });
+            }
+
             renderDevPanel() {
-                // 評価バー: 白視点に正規化。currentPlayer が黒なら符号反転する。
+                // 評価バー: 白視点に正規化。選択中のエンジン（NNUE / heuristic）に追随する。
                 const state = {
                     board: this.currentTurnState.board,
                     summonCounts: this.currentTurnState.summonCounts,
                     currentPlayer: this.currentTurnState.currentPlayer,
                     boardSize: this.boardSize,
                 };
-                const rawScore = evaluate(state, this.currentTurnState.currentPlayer, WEIGHTS);
-                const whiteScore = this.currentTurnState.currentPlayer === 'white' ? rawScore : -rawScore;
-
-                // シグモイドで 0-100% に正規化（適当なスケール係数）
-                const pct = 100 / (1 + Math.exp(-whiteScore / 20));
-                dom.evalBarWhite.style.width = `${pct.toFixed(1)}%`;
-                dom.evalBarLabel.textContent = `白視点: ${whiteScore.toFixed(1)}`;
+                this.updateEvalBar(state);
 
                 dom.statCurrentPlayer.textContent = this.currentTurnState.currentPlayer === 'white' ? '白' : '黒';
 
