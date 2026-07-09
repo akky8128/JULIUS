@@ -30,10 +30,13 @@ export const MAX_DEPTH = 8;
  *
  * [4]〜[8] は evaluate.js のヒューリスティック項を POV 相対の差分として供給する。
  * 盤面 one-hot からは間接的にしか学べない構造知識（トップ支配・埋め・除去機会・
- * 機動力・物量）を明示的に渡す狙い。いずれも盤面全体の集計量なので D4 対称変換で
- * 不変であり、augment 展開時に sym 間で使い回して問題ない。
+ * 機動力・物量）を明示的に渡す狙い。
+ * [9]〜[12] は勝敗規則（盤面充填時にトップ皆無の側が負け）に直結する終局近接シグナル
+ * （絶対トップ密度・充填率との積）。積は線形スカラー層では表現できないため明示供給する。
+ * いずれも盤面全体の集計量なので D4 対称変換で不変であり、augment 展開時に sym 間で
+ * 使い回して問題ない。末尾追加なので旧モデル（scalarDim<13）は先頭のみ使用し無改変で動作。
  */
-export const SCALAR_DIM = 9;
+export const SCALAR_DIM = 13;
 
 /**
  * D4群（正方形の対称変換）の要素数。
@@ -148,6 +151,15 @@ export function extractFeatures(state, povPlayer) {
   scalars[6] = (myElim - oppElim) / numCells;
   scalars[7] = (myMobility - oppMobility) / numCells;
   scalars[8] = (myMaterial - oppMaterial) / (2 * maxS);
+  // ── 終局近接シグナル（第2弾特徴, [9]〜[12]）──
+  // 勝敗規則: 盤面が埋まった（or サモン枯渇）時点で「トップに自コマが1つも無い側が負け」。
+  // よって「絶対トップ密度」と「盤面充填率との積」が終局勝敗に直結する。積は線形の
+  // スカラー層(L2)では作れないため明示供給する。いずれも盤面集計量で D4 不変。
+  const filled = (numCells - emptyCellCount) / numCells;
+  scalars[9]  = myTop / numCells;                 // 自トップ密度（高いほど勝ちに近い）
+  scalars[10] = oppTop / numCells;                // 相手トップ密度（→0 が勝ち条件）
+  scalars[11] = (myTop / numCells) * filled;      // 充填×自支配（終局勝ち信号）
+  scalars[12] = (oppTop / numCells) * filled;     // 充填×相手支配（終局負け信号）
 
   return { indices, scalars };
 }

@@ -360,6 +360,6 @@ test("featureDim: boardSize=4 で 4*4*MAX_DEPTH*2", () => {
 
 test("定数: MAX_DEPTH, SCALAR_DIM, NUM_SYMMETRIES の値", () => {
   assert.equal(MAX_DEPTH, 8);
-  assert.equal(SCALAR_DIM, 4);
+  assert.equal(SCALAR_DIM, 13);
   assert.equal(NUM_SYMMETRIES, 8);
 });
