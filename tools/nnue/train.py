@@ -52,6 +52,8 @@ def parse_args():
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda", "mps"])
     p.add_argument("--golden-samples", type=int, default=24)
+    p.add_argument("--stack-encoder-dim", type=int, default=0,
+                   help="E: shared per-cell stack-encoder output dim (0 = disabled, current behavior)")
     return p.parse_args()
 
 
@@ -160,21 +162,44 @@ class ClippedReLU:
     pass
 
 
-def build_model(feature_dim, scalar_dim, h1, h2, h3):
+def build_model(feature_dim, scalar_dim, h1, h2, h3, stack_encoder_dim=0):
+    """
+    stack_encoder_dim > 0 の場合、共有重みの per-cell スタックエンコーダ
+    (Linear(16 -> E) をセル毎に同じ重みで適用し、16セル分を sum-pool する)
+    を追加する。encoder 出力 p(E) は a1 と scalars の間に concat される:
+        h1 = concat(a1[H1], p[E], scalars[scalarDim])
+    stack_encoder_dim=0 (デフォルト) の場合は従来通り encoder なし。
+    """
     import torch
     import torch.nn as nn
+
+    CELL_SLOT_DIM = 16  # MAX_DEPTH(8) * 2 colors
+    num_cells = feature_dim // CELL_SLOT_DIM
 
     class NNUEModel(nn.Module):
         def __init__(self):
             super().__init__()
+            self.stack_encoder_dim = stack_encoder_dim
+            self.num_cells = num_cells
             self.l1 = nn.Linear(feature_dim, h1)
-            self.l2 = nn.Linear(h1 + scalar_dim, h2)
+            if stack_encoder_dim > 0:
+                self.enc = nn.Linear(CELL_SLOT_DIM, stack_encoder_dim)
+            l2_in = h1 + stack_encoder_dim + scalar_dim
+            self.l2 = nn.Linear(l2_in, h2)
             self.l3 = nn.Linear(h2, h3)
             self.l4 = nn.Linear(h3, 1)
 
         def forward(self, x, s):
             a1 = torch.clamp(self.l1(x), 0.0, 1.0)
-            h1_cat = torch.cat([a1, s], dim=1)
+            parts = [a1]
+            if self.stack_encoder_dim > 0:
+                # x[:, :feature_dim] -> [B, num_cells, 16] (共有重み Wenc/benc を全セルに適用)
+                per_cell = x.view(x.shape[0], self.num_cells, CELL_SLOT_DIM)
+                e_cell = torch.clamp(self.enc(per_cell), 0.0, 1.0)  # [B, num_cells, E]
+                pooled = e_cell.sum(dim=1)  # sum-pool over cells -> [B, E]
+                parts.append(pooled)
+            parts.append(s)
+            h1_cat = torch.cat(parts, dim=1)
             a2 = torch.clamp(self.l2(h1_cat), 0.0, 1.0)
             a3 = torch.clamp(self.l3(a2), 0.0, 1.0)
             out = self.l4(a3)
@@ -317,13 +342,18 @@ def train_model(model, device, x_dense, scalars, y, train_idx, val_idx, args):
     return model, best_val_loss, last_train_loss, best_epoch, epoch
 
 
-def write_bin(path, model):
-    """Write weights in float32 little-endian, in the fixed tensor order."""
+def write_bin(path, model, stack_encoder_dim=0):
+    """Write weights in float32 little-endian, in the fixed tensor order.
+    When stack_encoder_dim > 0, append Wenc/benc (tensors[8],[9]) after the
+    original 8 tensors (tensors[0..7] ordering/format is unchanged for
+    backward compatibility with legacy models)."""
     import numpy as np
 
     sd = model.state_dict()
     order = ["l1.weight", "l1.bias", "l2.weight", "l2.bias",
              "l3.weight", "l3.bias", "l4.weight", "l4.bias"]
+    if stack_encoder_dim > 0:
+        order += ["enc.weight", "enc.bias"]
 
     with open(path, "wb") as f:
         for key in order:
@@ -422,7 +452,8 @@ def main():
 
     device = resolve_device(args.device)
 
-    model = build_model(feature_dim, scalar_dim, args.hidden1, args.hidden2, args.hidden3)
+    model = build_model(feature_dim, scalar_dim, args.hidden1, args.hidden2, args.hidden3,
+                         stack_encoder_dim=args.stack_encoder_dim)
 
     model, best_val_loss, last_train_loss, best_epoch, epochs_run = train_model(
         model, device, x_dense, scalars, y, train_idx, val_idx, args
@@ -437,8 +468,27 @@ def main():
     json_path = os.path.join(args.out_dir, f"{gen_tag}.json")
     golden_path = os.path.join(args.out_dir, f"{gen_tag}.golden.json")
 
-    write_bin(bin_path, model)
+    write_bin(bin_path, model, stack_encoder_dim=args.stack_encoder_dim)
     print(f"[train] Wrote weights: {bin_path}")
+
+    CELL_SLOT_DIM = 16
+    h2_input_dim = args.hidden1 + scalar_dim + (args.stack_encoder_dim if args.stack_encoder_dim > 0 else 0)
+
+    tensors = [
+        {"name": "W1", "shape": [args.hidden1, feature_dim]},
+        {"name": "b1", "shape": [args.hidden1]},
+        {"name": "W2", "shape": [args.hidden2, h2_input_dim]},
+        {"name": "b2", "shape": [args.hidden2]},
+        {"name": "W3", "shape": [args.hidden3, args.hidden2]},
+        {"name": "b3", "shape": [args.hidden3]},
+        {"name": "W4", "shape": [1, args.hidden3]},
+        {"name": "b4", "shape": [1]},
+    ]
+    if args.stack_encoder_dim > 0:
+        tensors += [
+            {"name": "Wenc", "shape": [args.stack_encoder_dim, CELL_SLOT_DIM]},
+            {"name": "benc", "shape": [args.stack_encoder_dim]},
+        ]
 
     meta = {
         "format": "nnue-ukeja-v1",
@@ -457,16 +507,7 @@ def main():
         "lambda": args.lam,
         "dtype": "float32",
         "byteOrder": "little-endian",
-        "tensors": [
-            {"name": "W1", "shape": [args.hidden1, feature_dim]},
-            {"name": "b1", "shape": [args.hidden1]},
-            {"name": "W2", "shape": [args.hidden2, args.hidden1 + scalar_dim]},
-            {"name": "b2", "shape": [args.hidden2]},
-            {"name": "W3", "shape": [args.hidden3, args.hidden2]},
-            {"name": "b3", "shape": [args.hidden3]},
-            {"name": "W4", "shape": [1, args.hidden3]},
-            {"name": "b4", "shape": [1]},
-        ],
+        "tensors": tensors,
         "train": {
             "dataFile": args.data,
             "numRecords": n,
@@ -481,6 +522,9 @@ def main():
             "numValPositions": num_val_positions,
         },
     }
+    if args.stack_encoder_dim > 0:
+        meta["stackEncoder"] = {"dim": args.stack_encoder_dim, "cellSlotDim": CELL_SLOT_DIM}
+
     write_json(json_path, meta)
     print(f"[train] Wrote metadata: {json_path}")
 

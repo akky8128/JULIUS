@@ -115,3 +115,41 @@ test("empty indices のサンプルも正しく評価できる", async () => {
   assert.ok(Math.abs(out - emptySample.out) < TOLERANCE);
   assert.ok(Math.abs(sigmoid - emptySample.sigmoid) < TOLERANCE);
 });
+
+// ── stack encoder モデル（存在する場合のみ検証。gen090 は smoke train の出力例）──
+const encoderJsonPath = path.join(projectRoot, "models", "gen090.json");
+const encoderGoldenPath = path.join(projectRoot, "models", "gen090.golden.json");
+
+test("parity: stack-encoder モデル(gen090)が存在すれば golden と一致する", async (t) => {
+  let jsonExists = true;
+  try {
+    await readFile(encoderJsonPath, "utf8");
+  } catch {
+    jsonExists = false;
+  }
+  if (!jsonExists) {
+    t.skip("models/gen090.json が存在しないためスキップ（smoke train 未実行）");
+    return;
+  }
+
+  const network = await loadNetwork(encoderJsonPath);
+  assert.ok(network.meta.stackEncoder, "gen090.json は meta.stackEncoder を持つはず");
+
+  const golden = JSON.parse(await readFile(encoderGoldenPath, "utf8"));
+  assert.ok(Array.isArray(golden.samples) && golden.samples.length > 0);
+
+  let maxOutDiff = 0;
+  let maxSigmoidDiff = 0;
+  for (const sample of golden.samples) {
+    const out = network.evaluate(sample.indices, sample.scalars);
+    const sigmoid = network.evaluateSigmoid(sample.indices, sample.scalars);
+    maxOutDiff = Math.max(maxOutDiff, Math.abs(out - sample.out));
+    maxSigmoidDiff = Math.max(maxSigmoidDiff, Math.abs(sigmoid - sample.sigmoid));
+    assert.ok(Math.abs(out - sample.out) < TOLERANCE);
+    assert.ok(Math.abs(sigmoid - sample.sigmoid) < TOLERANCE);
+  }
+
+  console.log(
+    `[parity/encoder] samples=${golden.samples.length} maxOutDiff=${maxOutDiff.toExponential(3)} maxSigmoidDiff=${maxSigmoidDiff.toExponential(3)}`
+  );
+});

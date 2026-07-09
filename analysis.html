@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JuliUs NNUE Lab（開発用）</title>
+    <title>JuliUs 解析ツール（非公開）</title>
     <meta name="robots" content="noindex, nofollow">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
@@ -12,7 +12,7 @@
             font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
             touch-action: manipulation;
         }
-        /* --- game.html から移植した盤面・駒のスタイル（静的描画のみ、FLIPアニメは移植不要） --- */
+        /* --- 盤面・駒（nnue-lab.html を移植） --- */
         .board {
             display: grid;
             width: 100%;
@@ -30,89 +30,48 @@
 
         /* --- 評価バー --- */
         #eval-bar-track { background: #111; height: 22px; border-radius: 4px; overflow: hidden; position: relative; }
-        #eval-bar-white { background: linear-gradient(90deg, #f5f5f5, #ffffff); height: 100%; }
+        #eval-bar-white { background: linear-gradient(90deg, #f5f5f5, #ffffff); height: 100%; transition: width 0.2s ease; }
         #eval-bar-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #111; text-shadow: 0 1px 2px rgba(255,255,255,0.6); }
 
         .stat-chip { background: #f3f4f6; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
         .dev-badge { background: #7c3aed; color: white; font-size: 10px; padding: 2px 6px; border-radius: 9999px; letter-spacing: 0.05em; }
+
+        /* --- 棋譜表示（game.html を移植） --- */
+        .kifu-scroll {
+            overflow-x: auto;
+            white-space: nowrap;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            -webkit-mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+            mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+        }
+        .kifu-scroll::-webkit-scrollbar { display: none; }
+        #kifu-text { padding: 0 16px; }
+        .kifu-move { cursor: pointer; padding: 1px 3px; }
+        .kifu-move:hover { background-color: #e5e7eb; border-radius: 4px; }
+        .kifu-move.kifu-active { background-color: #d1d5db; border-radius: 4px; font-weight: 700; }
+
+        /* --- 解析パネル --- */
+        .candidate-row { cursor: pointer; border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 10px; }
+        .candidate-row:hover { background-color: #eff6ff; border-color: #93c5fd; }
+        .candidate-row.is-win { background-color: #fef3c7; border-color: #f59e0b; }
+        .win-badge { background: #f59e0b; color: white; font-size: 10px; padding: 1px 6px; border-radius: 9999px; margin-left: 6px; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
     <header class="bg-purple-900 text-white py-2 px-4 text-center text-sm">
-        <span class="dev-badge">DEV ONLY</span>
-        JuliUs NNUE Lab — 本番から隔離された CPU 検証プレイグラウンド（Firebase 未使用・ローカルメモリのみ）
+        <span class="dev-badge">解析専用・非公開</span>
+        JuliUs 解析ツール — gen092 による時間無制限探索・棋譜つき局面解析（Firebase 未使用・ローカルメモリのみ）
     </header>
 
     <main class="w-full max-w-3xl mx-auto py-6 px-4">
-
-        <!-- ───────────── 対局設定パネル ───────────── -->
-        <section id="settings-panel" class="bg-white rounded-lg shadow-md p-4 mb-4">
-            <h2 class="font-bold text-lg mb-3">対局設定</h2>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                <label class="block">
-                    盤サイズ
-                    <select id="opt-board-size" class="w-full border rounded p-1.5 mt-1">
-                        <option value="3">3 x 3</option>
-                        <option value="4" selected>4 x 4</option>
-                        <option value="5">5 x 5</option>
-                        <option value="6">6 x 6</option>
-                    </select>
-                </label>
-                <label class="block">
-                    人間の色
-                    <select id="opt-human-color" class="w-full border rounded p-1.5 mt-1">
-                        <option value="white" selected>白（先手）</option>
-                        <option value="black">黒（後手）</option>
-                    </select>
-                </label>
-                <label class="block">
-                    CPU レベル
-                    <select id="opt-cpu-level" class="w-full border rounded p-1.5 mt-1">
-                        <option value="1">1（よわい）</option>
-                        <option value="2" selected>2（ふつう）</option>
-                        <option value="3">3（つよい・heuristic探索）</option>
-                        <option value="nnue">NNUE（最強・学習済み評価）</option>
-                    </select>
-                </label>
-                <label id="nnue-model-label" class="block" style="display:none;">
-                    NNUE モデル
-                    <select id="opt-nnue-model" class="w-full border rounded p-1.5 mt-1">
-                        <option value="/models/gen092.json" selected>gen092 — 最強（96/24/24＋共有スタックエンコーダ・vs gen071 98%・vs heuristic 95%）</option>
-                        <option value="/models/gen071.json">gen071 — 強（96/24/24・12周目・13スカラー終局特徴・vs heuristic 92.9%）</option>
-                        <option value="/models/gen043.json">gen043 — 強（96/24/24・10周目・9スカラー・vs heuristic 91-93%）</option>
-                        <option value="/models/gen415.json">gen415 — 強（96/24/24・9周目・特徴量拡充9スカラー・vs heuristic 88.8%）</option>
-                        <option value="/models/gen122.json">gen122 — 強（96/24/24・8周目・gen720に90.9%）</option>
-                        <option value="/models/gen720.json">gen720 — 強（96/24/24・7周目・gen118超え）</option>
-                        <option value="/models/gen118.json">gen118 — 強（96/24/24・6周目seed2）</option>
-                        <option value="/models/gen016.json">gen016 — 強（96/24/24・容量増＋多様化）</option>
-                        <option value="/models/gen014.json">gen014 — 高速強（64/16/16・軽量）</option>
-                        <option value="/models/gen013.json">gen013 — 強（自己対戦2周）</option>
-                        <option value="/models/gen012.json">gen012 — 中強（64/16/16）</option>
-                        <option value="/models/gen005.json">gen005 — 中（128/32/32）</option>
-                        <option value="/models/gen002.json">gen002 — 弱め（教師蒸留）</option>
-                        <option value="/models/gen001.json">gen001 — 最弱（初期世代）</option>
-                    </select>
-                </label>
-                <label class="block col-span-2 sm:col-span-2">
-                    CPU 思考時間予算: <span id="time-budget-value">1000</span> ms
-                    <input id="opt-time-budget" type="range" min="200" max="3000" step="100" value="1000" class="w-full mt-2">
-                    <span class="text-xs text-gray-400">level3 / NNUE の探索に反映（level1/2には影響しません）</span>
-                </label>
-                <label class="flex items-center gap-2 mt-5">
-                    <input id="opt-spectate-mode" type="checkbox" class="w-4 h-4">
-                    観戦モード（CPU vs CPU 自動対局）
-                </label>
-            </div>
-            <div class="mt-4 flex space-x-2">
-                <button id="new-game-btn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow">新規対局（リセット）</button>
-            </div>
-        </section>
 
         <!-- ───────────── ゲーム情報パネル ───────────── -->
         <section id="info-panel" class="bg-white rounded-lg shadow-md p-4 mb-4 text-center">
             <p id="turn-indicator" class="text-xl font-semibold">-</p>
             <p id="message-area" class="text-gray-600 mt-2 h-6"></p>
+            <p id="viewing-past-notice" class="text-xs text-orange-600 h-4"></p>
             <div class="flex justify-around mt-3">
                 <div class="w-1/2 text-center">
                     <p class="font-semibold">白</p>
@@ -146,38 +105,54 @@
             </div>
         </section>
 
-        <!-- ───────────── 開発用可視化パネル ───────────── -->
-        <section id="dev-panel" class="bg-white rounded-lg shadow-md p-4 mt-4">
-            <h2 class="font-bold text-lg mb-2">開発用可視化パネル</h2>
+        <!-- ───────────── 棋譜表示 ───────────── -->
+        <section id="kifu-section" class="bg-white rounded-lg shadow-md p-3 mt-4">
+            <div id="kifu-scroll" class="kifu-scroll">
+                <span id="kifu-text" class="font-mono text-sm text-gray-700"></span>
+            </div>
+        </section>
 
-            <div class="mb-3">
-                <p class="text-xs text-gray-500 mb-1">評価バー（白視点に正規化。選択中エンジンに追随: NNUE選択時は白勝率、heuristic選択時は evaluate(WEIGHTS) スコア）</p>
-                <div id="eval-bar-track">
-                    <div id="eval-bar-white" style="width:50%"></div>
-                    <div id="eval-bar-label">0</div>
-                </div>
+        <!-- ───────────── 棋譜操作パネル ───────────── -->
+        <section id="replay-controls" class="bg-white rounded-lg shadow-md p-4 mt-4 flex items-center justify-center space-x-4">
+            <button id="first-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-fast-backward"></i></button>
+            <button id="prev-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-step-backward"></i></button>
+            <span id="turn-display" class="font-semibold text-gray-700">Turn 0 / 0</span>
+            <button id="next-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-step-forward"></i></button>
+            <button id="last-move-btn" class="replay-btn px-3 py-2 bg-gray-200 rounded-md hover:bg-gray-300"><i class="fas fa-fast-forward"></i></button>
+            <button id="new-game-btn" class="ml-4 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm">新規（盤リセット）</button>
+        </section>
+
+        <!-- ───────────── 評価バー（常時・静的評価） ───────────── -->
+        <section id="eval-panel" class="bg-white rounded-lg shadow-md p-4 mt-4">
+            <p class="text-xs text-gray-500 mb-1">評価バー（白視点勝率。gen092 の静的評価。メインスレッドで随時計算）</p>
+            <div id="eval-bar-track">
+                <div id="eval-bar-white" style="width:50%"></div>
+                <div id="eval-bar-label">読込中…</div>
+            </div>
+        </section>
+
+        <!-- ───────────── 解析パネル（Phase 5） ───────────── -->
+        <section id="analysis-panel" class="bg-white rounded-lg shadow-md p-4 mt-4">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="font-bold text-lg">局面解析（gen092・時間無制限）</h2>
+                <span class="text-xs text-gray-400">モデル: gen092 固定</span>
             </div>
 
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                <div class="stat-chip">手番: <span id="stat-current-player">-</span></div>
-                <div class="stat-chip">サモンフェーズ: <span id="stat-summon-phase">-</span></div>
-                <div class="stat-chip">合法手数: <span id="stat-legal-count">-</span></div>
-                <div class="stat-chip">残サモン(白/黒): <span id="stat-remaining-summons">-</span></div>
+            <div class="flex space-x-2 mb-3">
+                <button id="analyze-start-btn" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow">解析開始</button>
+                <button id="analyze-stop-btn" class="hidden flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow">解析停止</button>
             </div>
 
-            <div class="mb-3">
-                <p class="text-xs text-gray-500 mb-1">直近CPU探索統計（nnueWorker.js からの info）</p>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div class="stat-chip">depth: <span id="stat-depth">-</span></div>
-                    <div class="stat-chip">nodes: <span id="stat-nodes">-</span></div>
-                    <div class="stat-chip">elapsedMs: <span id="stat-elapsed">-</span></div>
-                    <div class="stat-chip">score: <span id="stat-score">-</span></div>
-                </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                <div class="stat-chip">探索ラウンド: <span id="analysis-depth">-</span></div>
+                <div class="stat-chip">経過時間: <span id="analysis-elapsed">-</span> ms</div>
+                <div class="stat-chip">現局面評価値: <span id="analysis-current-score">-</span></div>
+                <div class="stat-chip col-span-2 sm:col-span-1">現手番勝率: <span id="analysis-current-winprob">-</span></div>
             </div>
 
             <div>
-                <p class="text-xs text-gray-500 mb-1">手の履歴（直近確定アクション）</p>
-                <div id="move-history" class="text-xs font-mono bg-gray-50 rounded p-2 h-24 overflow-y-auto"></div>
+                <p class="text-xs text-gray-500 mb-1">最善候補手 Top3（クリック/ホバーで盤上プレビュー）</p>
+                <div id="candidates-list" class="space-y-1"></div>
             </div>
         </section>
 
@@ -196,15 +171,16 @@
     </div>
 
     <script type="module">
-        // Firebase は一切 import しない。ゲーム状態はページ内メモリだけで完結する。
+        // Firebase は一切 import しない。状態はページ内メモリだけで完結する。
         import { simulateTurn, checkWinCondition, normalizeBoard, maxSummonsFor } from './js/gameLogic.js';
-        import { generateTurns } from './js/ai/moveGen.js';
-        import { evaluate, WEIGHTS } from './js/ai/evaluate.js';
         import { createNetworkFromBuffer } from './js/ai/nnue/network.js';
+        import { diffToNotation } from './js/tutorial/coords.js';
 
-        // ─── 評価バー用 NNUE ネットワークのロード（メインスレッド・キャッシュ付き） ───
-        // Worker と同じ .json/.bin を fetch して構築する。探索は Worker 側で行うが、
-        // 評価バーは局面 1 つの静的評価だけなのでメインスレッドで直接評価する。
+        // 固定モデル（非公開・解析専用。gen092 は現行最強の学習済みNNUE（共有スタックエンコーダ））
+        const ANALYSIS_NET_PATH = '/models/gen092.json';
+        const BOARD_SIZE = 4; // 拡張余地として変数化しておくが、本ツールは4x4固定運用。
+
+        // ─── 評価バー用 NNUE ネットワークのロード（メインスレッド・キャッシュ付き、nnue-lab.html 踏襲） ───
         const evalNetCache = new Map(); // path(.json) -> Promise<network>
         function loadEvalNet(jsonPath) {
             const normalized = jsonPath.replace(/\.bin$/, '.json');
@@ -222,18 +198,9 @@
 
         // ───────────────────────── DOM 参照 ─────────────────────────
         const dom = {
-            boardSizeSel: document.getElementById('opt-board-size'),
-            humanColorSel: document.getElementById('opt-human-color'),
-            cpuLevelSel: document.getElementById('opt-cpu-level'),
-            nnueModelSel: document.getElementById('opt-nnue-model'),
-            nnueModelLabel: document.getElementById('nnue-model-label'),
-            timeBudgetRange: document.getElementById('opt-time-budget'),
-            timeBudgetValue: document.getElementById('time-budget-value'),
-            spectateCheckbox: document.getElementById('opt-spectate-mode'),
-            newGameBtn: document.getElementById('new-game-btn'),
-
             turnIndicator: document.getElementById('turn-indicator'),
             messageArea: document.getElementById('message-area'),
+            viewingPastNotice: document.getElementById('viewing-past-notice'),
             whiteSummonCount: document.getElementById('white-summon-count'),
             blackSummonCount: document.getElementById('black-summon-count'),
 
@@ -243,17 +210,24 @@
             cancelBtn: document.getElementById('cancel-button'),
             endTurnBtn: document.getElementById('end-turn-button'),
 
+            kifuText: document.getElementById('kifu-text'),
+            firstMoveBtn: document.getElementById('first-move-btn'),
+            prevMoveBtn: document.getElementById('prev-move-btn'),
+            nextMoveBtn: document.getElementById('next-move-btn'),
+            lastMoveBtn: document.getElementById('last-move-btn'),
+            turnDisplay: document.getElementById('turn-display'),
+            newGameBtn: document.getElementById('new-game-btn'),
+
             evalBarWhite: document.getElementById('eval-bar-white'),
             evalBarLabel: document.getElementById('eval-bar-label'),
-            statCurrentPlayer: document.getElementById('stat-current-player'),
-            statSummonPhase: document.getElementById('stat-summon-phase'),
-            statLegalCount: document.getElementById('stat-legal-count'),
-            statRemainingSummons: document.getElementById('stat-remaining-summons'),
-            statDepth: document.getElementById('stat-depth'),
-            statNodes: document.getElementById('stat-nodes'),
-            statElapsed: document.getElementById('stat-elapsed'),
-            statScore: document.getElementById('stat-score'),
-            moveHistory: document.getElementById('move-history'),
+
+            analyzeStartBtn: document.getElementById('analyze-start-btn'),
+            analyzeStopBtn: document.getElementById('analyze-stop-btn'),
+            analysisDepth: document.getElementById('analysis-depth'),
+            analysisElapsed: document.getElementById('analysis-elapsed'),
+            analysisCurrentScore: document.getElementById('analysis-current-score'),
+            analysisCurrentWinprob: document.getElementById('analysis-current-winprob'),
+            candidatesList: document.getElementById('candidates-list'),
 
             modal: document.getElementById('modal'),
             modalTitle: document.getElementById('modal-title'),
@@ -262,105 +236,74 @@
             modalCancelBtn: document.getElementById('modal-cancel-button'),
         };
 
-        // ───────────────────────── UI 状態機械（game.html の状態機械を移植） ─────────────────────────
+        // ───────────────────────── UI 状態機械（nnue-lab.html を移植、両手番人間化） ─────────────────────────
         // IDLE | PIECE_SELECTED | CONTINUOUS_MOVE | ACTION_TAKEN
-        class NnueLab {
+        class AnalysisTool {
             constructor() {
-                this.cpuWorker = new Worker('js/ai/nnueWorker.js', { type: 'module' });
-                this.cpuWorker.onmessage = (event) => this.handleWorkerMessage(event.data);
-                this.cpuWorker.onerror = (err) => {
-                    console.error('nnueWorker error:', err);
-                    this.cpuThinking = false;
-                    this.setMessage('CPUエラーが発生しました: ' + (err.message || err));
-                    this.render();
+                this.boardSize = BOARD_SIZE;
+                this.maxSummons = maxSummonsFor(this.boardSize);
+
+                this.analysisWorker = new Worker('js/ai/analysisWorker.js', { type: 'module' });
+                this.analysisWorker.onmessage = (event) => this.handleAnalysisMessage(event.data);
+                this.analysisWorker.onerror = (err) => {
+                    console.error('analysisWorker error:', err);
+                    this.analyzing = false;
+                    this.setMessage('解析エラーが発生しました: ' + (err.message || err));
+                    this.renderAnalysisControls();
                 };
 
-                this.cpuRequestId = 0;
-                this.cpuThinking = false;
-                this._cpuSendTime = 0;
+                this.analysisRequestId = 0;
+                this.analyzing = false;
+                this.previewCandidate = null; // ホバー中のプレビュー用候補（board を一時表示）
 
-                this.moveHistory = [];
-                this.lastSearchInfo = null;
-
-                this.spectateTimer = null;
+                this.resolvedEvalNets = {};
+                this._evalNetLoading = null;
 
                 this.newGame();
                 this.bindUi();
-                this.syncNnueModelVisibility();
             }
 
             // ───────────── ゲーム初期化 ─────────────
+            // moves: 各半手後の確定局面スナップショット配列。moves[0] は初期局面（白番・空盤）。
             newGame() {
-                if (this.spectateTimer) { clearTimeout(this.spectateTimer); this.spectateTimer = null; }
+                this.stopAnalysis();
 
-                const boardSize = parseInt(dom.boardSizeSel.value, 10) || 4;
-                this.humanColor = dom.humanColorSel.value === 'black' ? 'black' : 'white';
-                this.cpuLevel = this.readCpuLevel();
-                this.nnueNetPath = this.readNnueNet();
-                this.timeBudgetMs = parseInt(dom.timeBudgetRange.value, 10) || 1000;
-                this.spectateMode = dom.spectateCheckbox.checked;
-
-                const maxSummons = maxSummonsFor(boardSize);
                 const emptyBoard = [];
-                for (let r = 0; r < boardSize; r++) {
+                for (let r = 0; r < this.boardSize; r++) {
                     const row = [];
-                    for (let c = 0; c < boardSize; c++) row.push(0);
+                    for (let c = 0; c < this.boardSize; c++) row.push(0);
                     emptyBoard.push(row);
                 }
 
-                this.boardSize = boardSize;
-                this.maxSummons = maxSummons;
-
-                // 確定済み最新状態（denormalized board: 空セルは0）
-                this.committed = {
+                this.moves = [{
                     board: emptyBoard,
                     summonCounts: { white: 0, black: 0 },
                     currentPlayer: 'white',
-                    status: 'in_progress',
-                    winner: null,
-                    winReason: null,
-                };
-
-                this.moveHistory = [];
-                this.lastSearchInfo = null;
-                this.cpuThinking = false;
-                this.cpuRequestId++; // 進行中のCPUリクエストを無効化
+                }];
+                this.viewingIndex = 0;
+                this.status = 'in_progress';
+                this.winner = null;
+                this.winReason = null;
 
                 this.resetUncommittedChanges();
-                this.setMessage('新規対局を開始しました。');
+                this.setMessage('新規解析局面を開始しました。両手番とも自分で操作できます。');
                 this.render();
-                this.maybeTriggerCpuTurn();
             }
 
-            readCpuLevel() {
-                const v = dom.cpuLevelSel.value;
-                if (v === 'nnue') return 3; // NNUE 選択時は net 指定で分岐するが、フォールバックとして level3 相当
-                const n = parseInt(v, 10);
-                return (n === 1 || n === 3) ? n : 2;
+            // 現在表示中の確定局面（moves[viewingIndex]）を返す。
+            viewingState() {
+                return this.moves[this.viewingIndex];
             }
 
-            // NNUE モデルが選択されていれば .json パスを、それ以外は null を返す。
-            readNnueNet() {
-                return dom.cpuLevelSel.value === 'nnue' ? dom.nnueModelSel.value : null;
-            }
-
-            // NNUE モデル選択 UI の表示/非表示を CPU レベル選択に合わせる。
-            syncNnueModelVisibility() {
-                dom.nnueModelLabel.style.display =
-                    dom.cpuLevelSel.value === 'nnue' ? '' : 'none';
-            }
-
-            // 現在ターンの作業コピー（サモン/移動/排除を積み重ねる下書き状態）をリセットする
+            // 現在ターンの作業コピー（サモン/移動/排除を積み重ねる下書き状態）を、
+            // 表示中の確定局面から作り直す（nnue-lab.html の resetUncommittedChanges 相当）。
             resetUncommittedChanges() {
-                // normalizeBoard/normalizeStack は「既に配列のセルはそのまま返す」ため、
-                // committed.board のセル配列と参照を共有してしまう。下書き中の move/eliminate
-                // (splice) が committed.board を破壊し、キャンセルで盤面が戻らなくなるのを防ぐため、
-                // 各セル配列を必ずディープコピー(slice)して参照を切り離す。
-                const normalized = normalizeBoard(this.committed.board, this.boardSize);
+                const committed = this.viewingState();
+                const normalized = normalizeBoard(committed.board, this.boardSize);
                 this.currentTurnState = {
                     board: normalized.map((row) => row.map((cell) => cell.slice())),
-                    summonCounts: { ...this.committed.summonCounts },
-                    currentPlayer: this.committed.currentPlayer,
+                    summonCounts: { ...committed.summonCounts },
+                    currentPlayer: committed.currentPlayer,
                 };
                 this.turnStartBoardState = JSON.parse(JSON.stringify(this.currentTurnState.board));
                 this.turnActions = [];
@@ -373,9 +316,6 @@
             // ───────────── UI バインド ─────────────
             bindUi() {
                 dom.newGameBtn.addEventListener('click', () => this.newGame());
-                dom.timeBudgetRange.addEventListener('input', () => {
-                    dom.timeBudgetValue.textContent = dom.timeBudgetRange.value;
-                });
                 dom.board.addEventListener('click', (e) => this.handleBoardClick(e));
                 dom.cancelBtn.addEventListener('click', () => this.cancelTurn());
                 dom.endTurnBtn.addEventListener('click', () => this.endTurn());
@@ -388,39 +328,47 @@
                     });
                 });
 
-                // 設定変更は次回「新規対局」から反映（対局途中の盤サイズ変更は禁止）。
-                // CPUレベル・思考時間・観戦モードは対局中でも次のCPU思考から反映してよい。
-                dom.cpuLevelSel.addEventListener('change', () => {
-                    this.cpuLevel = this.readCpuLevel();
-                    this.nnueNetPath = this.readNnueNet();
-                    this.syncNnueModelVisibility();
-                    if (this.currentTurnState) this.renderDevPanel(); // 評価バーを選択エンジンに追随
+                dom.firstMoveBtn.addEventListener('click', () => this.jumpTo(0));
+                dom.prevMoveBtn.addEventListener('click', () => this.jumpTo(this.viewingIndex - 1));
+                dom.nextMoveBtn.addEventListener('click', () => this.jumpTo(this.viewingIndex + 1));
+                dom.lastMoveBtn.addEventListener('click', () => this.jumpTo(this.moves.length - 1));
+
+                dom.kifuText.addEventListener('click', (e) => {
+                    const el = e.target.closest('.kifu-move');
+                    if (!el) return;
+                    const halfIndex = parseInt(el.dataset.halfIndex, 10);
+                    if (Number.isNaN(halfIndex)) return;
+                    // halfMoves[k] は moves[k+1] の局面を生んだ手に対応する。
+                    this.jumpTo(halfIndex + 1);
                 });
-                dom.nnueModelSel.addEventListener('change', () => {
-                    this.nnueNetPath = this.readNnueNet();
-                    if (this.currentTurnState) this.renderDevPanel(); // 評価バーを選択モデルに追随
-                });
-                dom.timeBudgetRange.addEventListener('change', () => { this.timeBudgetMs = parseInt(dom.timeBudgetRange.value, 10) || 1000; });
-                dom.spectateCheckbox.addEventListener('change', () => {
-                    this.spectateMode = dom.spectateCheckbox.checked;
-                    if (this.spectateMode) this.maybeTriggerCpuTurn();
-                });
+
+                dom.analyzeStartBtn.addEventListener('click', () => this.startAnalysis());
+                dom.analyzeStopBtn.addEventListener('click', () => this.stopAnalysis());
             }
 
-            // ───────────── 手番判定 ─────────────
+            // ───────────── 棋譜ナビゲーション（過去局面への移動） ─────────────
+            jumpTo(index) {
+                const clamped = Math.max(0, Math.min(this.moves.length - 1, index));
+                if (clamped === this.viewingIndex) return;
+                this.stopAnalysis();
+                this.viewingIndex = clamped;
+                this.resetUncommittedChanges();
+                this.setMessage('');
+                this.render();
+            }
+
+            // ───────────── 手番判定（両手番とも常に人間操作可） ─────────────
             isHumanTurn() {
-                if (this.spectateMode) return false;
-                return this.committed.currentPlayer === this.humanColor;
+                return true;
             }
 
-            // ───────────── 盤面クリック処理（game.html の handleBoardClick を移植） ─────────────
+            isViewingLatest() {
+                return this.viewingIndex === this.moves.length - 1;
+            }
+
+            // ───────────── 盤面クリック処理（nnue-lab.html を移植） ─────────────
             handleBoardClick(e) {
-                if (this.committed.status !== 'in_progress') return;
-                if (this.cpuThinking) return;
-                if (!this.isHumanTurn()) {
-                    this.setMessage('CPU（または相手）のターンです。');
-                    return;
-                }
+                if (this.status !== 'in_progress') return;
 
                 const cell = e.target.closest('.cell');
                 if (!cell) return;
@@ -635,7 +583,7 @@
                 this.render();
             }
 
-            // ───────────── ターン確定（simulateTurn による最終検証） ─────────────
+            // ───────────── ターン確定（simulateTurn による検証 → 指し直し対応で moves に反映） ─────────────
             endTurn() {
                 if (this.turnActions.length === 0 ||
                     JSON.stringify(this.turnStartBoardState) === JSON.stringify(this.currentTurnState.board)) {
@@ -646,17 +594,16 @@
             }
 
             /**
-             * simulateTurn でアクションを検証し、成功したら委任コミットする。
-             * actions 形式は game.html と完全に一致させる:
-             *   summon: {type:'summon', r, c}
-             *   eliminate: {type:'eliminate', r, c}
-             *   move: {type:'move', from:{r,c}, to:{r,c}, count}
+             * simulateTurn でアクションを検証し、成功したら moves 配列へ反映する。
+             * 表示中の局面（viewingIndex）が末尾でない場合は、以降の変化を切り詰めてから
+             * push する（＝指し直し・上書き）。これがユーザー承認済みの仕様。
              */
             commitTurnLocally(actions) {
+                const committed = this.viewingState();
                 const stateForSim = {
-                    board: normalizeBoard(this.committed.board, this.boardSize),
-                    summonCounts: { ...this.committed.summonCounts },
-                    currentPlayer: this.committed.currentPlayer,
+                    board: normalizeBoard(committed.board, this.boardSize),
+                    summonCounts: { ...committed.summonCounts },
+                    currentPlayer: committed.currentPlayer,
                     boardSize: this.boardSize,
                 };
 
@@ -670,19 +617,23 @@
                     return;
                 }
 
-                const mover = this.committed.currentPlayer;
+                const mover = committed.currentPlayer;
                 const nextPlayer = mover === 'white' ? 'black' : 'white';
 
-                this.committed = {
+                const nextSnapshot = {
                     board: result.board, // simulateTurn は denormalized board を返す
                     summonCounts: result.summonCounts,
                     currentPlayer: nextPlayer,
-                    status: 'in_progress',
-                    winner: null,
-                    winReason: null,
                 };
 
-                this.moveHistory.push({ mover, actions });
+                // 指し直し: viewingIndex より後ろの局面を切り詰めてから新しい局面を追加する。
+                this.moves = this.moves.slice(0, this.viewingIndex + 1);
+                this.moves.push(nextSnapshot);
+                this.viewingIndex = this.moves.length - 1;
+
+                this.status = 'in_progress';
+                this.winner = null;
+                this.winReason = null;
 
                 const nextNormalizedBoard = normalizeBoard(result.board, this.boardSize);
                 const stateForWin = {
@@ -696,93 +647,104 @@
                     const loser = nextPlayer;
                     const winnerLabel = winner === 'white' ? '白' : '黒';
                     const loserLabel = loser === 'white' ? '白' : '黒';
-                    this.committed.status = 'completed';
-                    this.committed.winner = winner;
-                    this.committed.winReason = `${winnerLabel}の勝利！${loserLabel}に合法手がなくなりました。`;
+                    this.status = 'completed';
+                    this.winner = winner;
+                    this.winReason = `${winnerLabel}の勝利！${loserLabel}に合法手がなくなりました。`;
                 }
+
+                // 局面が変わったので進行中の解析は停止し、パネルをクリアする。
+                this.stopAnalysis();
 
                 this.resetUncommittedChanges();
-                this.setMessage(this.committed.status === 'completed' ? this.committed.winReason : '');
+                this.setMessage(this.status === 'completed' ? this.winReason : '');
                 this.render();
-
-                if (this.committed.status === 'in_progress') {
-                    this.maybeTriggerCpuTurn();
-                }
             }
 
-            // ───────────── CPU 対戦（nnueWorker.js との連携） ─────────────
-            maybeTriggerCpuTurn() {
-                if (this.committed.status !== 'in_progress') return;
-                if (this.spectateMode) {
-                    this.triggerCpuTurn();
-                } else if (this.committed.currentPlayer !== this.humanColor) {
-                    this.triggerCpuTurn();
-                }
-            }
+            // ───────────── 解析パネル（Phase 5・Worker結線） ─────────────
+            startAnalysis() {
+                if (this.analyzing) return;
+                const state = this.viewingState();
+                this.analyzing = true;
+                this.analysisRequestId++;
+                this.lastAnalysisDepth = null;
+                this.lastAnalysisElapsed = null;
+                this.lastAnalysisCurrent = null;
+                this.lastAnalysisCandidates = [];
+                this.renderAnalysisPanel();
+                this.renderAnalysisControls();
 
-            triggerCpuTurn() {
-                if (this.cpuThinking) return;
-                this.cpuThinking = true;
-                this.setMessage('CPUが考えています…');
-                this.render();
-
-                const requestId = ++this.cpuRequestId;
-                this._cpuSendTime = Date.now();
-
-                this.cpuWorker.postMessage({
-                    requestId,
+                this.analysisWorker.postMessage({
+                    requestId: this.analysisRequestId,
+                    cmd: 'analyze',
                     state: {
-                        board: this.committed.board, // denormalized でも Worker 側で normalize する
-                        summonCounts: this.committed.summonCounts,
-                        currentPlayer: this.committed.currentPlayer,
+                        board: state.board,
+                        summonCounts: state.summonCounts,
+                        currentPlayer: state.currentPlayer,
                         boardSize: this.boardSize,
                     },
-                    level: this.cpuLevel,
-                    options: {
-                        // NNUE は反復深化を時間予算で打ち切るため深めに、heuristic level3 は従来通り4。
-                        maxDepth: this.nnueNetPath ? 64 : 4,
-                        timeBudgetMs: this.timeBudgetMs,
-                        net: this.nnueNetPath || undefined,
-                    },
+                    netPath: ANALYSIS_NET_PATH,
+                    maxDepth: 64,
+                    topN: 3,
                 });
             }
 
-            handleWorkerMessage(data) {
-                const { requestId, turn, info, error } = data;
-                if (requestId !== this.cpuRequestId) return; // 古いリクエストは無視
-
-                const elapsed = Date.now() - (this._cpuSendTime || Date.now());
-                const minDelay = 300; // ms: 最低限の待機（CPU感の演出）
-                const remainingDelay = Math.max(0, minDelay - elapsed);
-
-                setTimeout(() => {
-                    if (error) {
-                        this.cpuThinking = false;
-                        console.error('nnueWorker returned error:', error);
-                        this.setMessage('CPUエラーが発生しました: ' + error);
-                        this.render();
-                        return;
-                    }
-
-                    this.lastSearchInfo = info || null;
-
-                    if (!turn) {
-                        this.cpuThinking = false;
-                        this.setMessage('CPUに合法手がありません。');
-                        this.render();
-                        return;
-                    }
-
-                    this.cpuThinking = false;
-                    this.setMessage('');
-                    this.commitTurnLocally(turn.actions);
-
-                    // 観戦モードなら次のCPU手番も自動で続ける（commitTurnLocally 内の
-                    // maybeTriggerCpuTurn が spectateMode を見て自動的に継続する）
-                }, remainingDelay);
+            stopAnalysis() {
+                if (this.analyzing) {
+                    this.analysisWorker.postMessage({ requestId: this.analysisRequestId, cmd: 'stop' });
+                }
+                this.analyzing = false;
+                this.clearPreview();
+                this.renderAnalysisControls();
+                this.updateEvalBar(); // 静的評価へ戻す
             }
 
-            // ───────────── モーダル（game.html の showModal を簡略移植） ─────────────
+            handleAnalysisMessage(data) {
+                const { requestId, cmd } = data;
+                if (requestId !== this.analysisRequestId) return; // 古い解析結果は無視
+
+                if (cmd === 'progress') {
+                    this.lastAnalysisDepth = data.round;
+                    this.lastAnalysisElapsed = data.info ? data.info.elapsedMs : null;
+                    this.lastAnalysisCurrent = data.current;
+                    this.lastAnalysisCandidates = data.candidates || [];
+                    this.renderAnalysisPanel();
+                    // ラウンドが進むごとに評価バーを探索由来の動的評価で更新する。
+                    this.updateEvalBar();
+                    return;
+                }
+
+                if (cmd === 'done') {
+                    this.analyzing = false;
+                    this.lastAnalysisDepth = data.round;
+                    this.lastAnalysisElapsed = data.info ? data.info.elapsedMs : this.lastAnalysisElapsed;
+                    this.renderAnalysisPanel();
+                    this.renderAnalysisControls();
+                    this.updateEvalBar(); // 静的評価へ戻す
+                    return;
+                }
+
+                if (cmd === 'error') {
+                    this.analyzing = false;
+                    console.error('analysisWorker returned error:', data.error);
+                    this.setMessage('解析エラーが発生しました: ' + data.error);
+                    this.renderAnalysisControls();
+                    return;
+                }
+            }
+
+            // 候補手プレビュー: ホバー/クリックでその手を指した後の board を一時的に盤上表示する。
+            setPreview(candidate) {
+                this.previewCandidate = candidate;
+                this.renderBoard();
+            }
+
+            clearPreview() {
+                if (!this.previewCandidate) return;
+                this.previewCandidate = null;
+                this.renderBoard();
+            }
+
+            // ───────────── モーダル（nnue-lab.html の showModal を移植） ─────────────
             showModal(title, content, onConfirm, options = {}) {
                 const { confirmLabel = 'OK', cancelLabel = null, onCancel = null } = options;
                 dom.modalTitle.textContent = title;
@@ -828,7 +790,9 @@
                 this.renderBoard();
                 this.renderInfoPanel();
                 this.renderControls();
-                this.renderDevPanel();
+                this.renderKifu();
+                this.renderReplayControls();
+                this.updateEvalBar();
             }
 
             renderBoard() {
@@ -837,8 +801,12 @@
                 dom.board.style.gridTemplateColumns = `repeat(${boardSize}, 1fr)`;
                 dom.board.style.gridTemplateRows = `repeat(${boardSize}, 1fr)`;
 
-                const boardData = this.currentTurnState.board;
-                const validTargets = (this.uiGameState === 'PIECE_SELECTED' && this.selectedCoords)
+                // プレビュー中はその候補手の後の局面を表示する（下書きより優先）。
+                const boardData = this.previewCandidate
+                    ? normalizeBoard(this.previewCandidate.board, boardSize)
+                    : this.currentTurnState.board;
+
+                const validTargets = (!this.previewCandidate && this.uiGameState === 'PIECE_SELECTED' && this.selectedCoords)
                     ? this.getValidMoves(this.selectedCoords.r, this.selectedCoords.c)
                     : [];
 
@@ -848,7 +816,7 @@
                         cell.dataset.r = r; cell.dataset.c = c;
                         cell.className = `cell ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
 
-                        if (this.selectedCoords && this.selectedCoords.r === r && this.selectedCoords.c === c) {
+                        if (!this.previewCandidate && this.selectedCoords && this.selectedCoords.r === r && this.selectedCoords.c === c) {
                             cell.classList.add('selected');
                         }
                         if (validTargets.some(m => m.r === r && m.c === c)) {
@@ -873,23 +841,22 @@
                 const { currentPlayer } = this.currentTurnState;
                 const playerLabel = currentPlayer === 'white' ? '白' : '黒';
 
-                if (this.committed.status === 'completed') {
-                    dom.turnIndicator.textContent = this.committed.winReason || '対局終了';
-                } else if (this.cpuThinking) {
-                    dom.turnIndicator.textContent = `${playerLabel}の手番（CPU思考中…）`;
+                if (this.status === 'completed') {
+                    dom.turnIndicator.textContent = this.winReason || '対局終了';
                 } else {
-                    const whoseTurn = this.spectateMode
-                        ? 'CPU'
-                        : (currentPlayer === this.humanColor ? 'あなた' : 'CPU');
-                    dom.turnIndicator.textContent = `${playerLabel}の手番（${whoseTurn}）`;
+                    dom.turnIndicator.textContent = `${playerLabel}の手番（両手番とも手動操作）`;
                 }
 
                 dom.whiteSummonCount.textContent = `召喚 ${this.currentTurnState.summonCounts.white} / ${this.maxSummons}`;
                 dom.blackSummonCount.textContent = `召喚 ${this.currentTurnState.summonCounts.black} / ${this.maxSummons}`;
+
+                dom.viewingPastNotice.textContent = this.isViewingLatest()
+                    ? ''
+                    : 'この局面から指し直しています（操作すると以降の変化を上書きします）。';
             }
 
             renderControls() {
-                const interactive = this.committed.status === 'in_progress' && !this.cpuThinking && this.isHumanTurn();
+                const interactive = this.status === 'in_progress';
 
                 const isSummonPhaseOver = this.currentTurnState.summonCounts.white === this.maxSummons &&
                     this.currentTurnState.summonCounts.black === this.maxSummons;
@@ -901,119 +868,151 @@
                 dom.endTurnBtn.classList.toggle('hidden', !(interactive && hasUncommittedAction));
             }
 
-            // 評価バーを描画する。選択中のエンジンに追随:
-            //  - NNUE モデル選択時: net.evaluateState で白視点の評価（勝率）を表示。
-            //  - それ以外（heuristic level1/2/3）: 従来の evaluate(WEIGHTS)。
-            // NNUE ネットのロードは非同期・キャッシュ付き。未ロード中は heuristic を
-            // 暫定表示し、ロード完了後にこの局面が最新なら再描画する。
-            updateEvalBar(state) {
-                const netPath = this.nnueNetPath;
-                if (netPath) {
-                    const net = this.resolvedEvalNets && this.resolvedEvalNets[netPath];
-                    if (net) {
-                        // 白視点の生スコア（logit）→ シグモイドで白勝率へ
-                        const whiteLogit = net.evaluateState(state, 'white');
-                        const prob = 1 / (1 + Math.exp(-whiteLogit));
-                        dom.evalBarWhite.style.width = `${(prob * 100).toFixed(1)}%`;
-                        dom.evalBarLabel.textContent = `NNUE 白勝率: ${(prob * 100).toFixed(1)}%`;
-                        return;
+            // 2つの盤面を比較して棋譜トークンを生成する（game.html の diffToNotation と同一ロジック、
+            // 実体は coords.js から import した純関数を使う）。
+            buildKifuHTML() {
+                const moves = this.moves;
+                const boardSize = this.boardSize;
+                const halfMoves = [];
+                for (let i = 1; i < moves.length; i++) {
+                    halfMoves.push(diffToNotation(moves[i - 1].board, moves[i].board, boardSize));
+                }
+
+                const parts = [];
+                for (let i = 0; i < halfMoves.length; i += 2) {
+                    const turnNumber = i / 2 + 1;
+                    parts.push(`<span class="kifu-turn-num">${turnNumber}.</span>`);
+                    parts.push(`<span class="kifu-move" data-half-index="${i}">${halfMoves[i] || ''}</span>`);
+                    if (halfMoves[i + 1] !== undefined) {
+                        parts.push(`<span class="kifu-move" data-half-index="${i + 1}">${halfMoves[i + 1]}</span>`);
                     }
-                    // 未ロード: ロードを開始し、完了後に最新局面なら再描画
-                    this.ensureEvalNetLoaded(netPath);
-                    // 暫定表示（heuristic）
-                    this.renderHeuristicBar(state, ' (NNUE読込中…)');
+                }
+                return parts.join(' ');
+            }
+
+            // halfMoves[k] は moves[k+1] の盤面を生んだ手に対応するため、
+            // 現在表示中の viewingIndex に追従させるにはインデックスを1つずらす。
+            renderKifu() {
+                dom.kifuText.innerHTML = this.buildKifuHTML();
+                const activeIndex = this.viewingIndex - 1;
+                const activeEl = dom.kifuText.querySelector(`.kifu-move[data-half-index="${activeIndex}"]`);
+                if (activeEl) {
+                    activeEl.classList.add('kifu-active');
+                    activeEl.scrollIntoView({ block: 'nearest', inline: 'center' });
+                }
+            }
+
+            renderReplayControls() {
+                const maxTurn = this.moves.length - 1;
+                dom.turnDisplay.textContent = `Turn ${this.viewingIndex} / ${maxTurn}`;
+                dom.firstMoveBtn.disabled = this.viewingIndex === 0;
+                dom.prevMoveBtn.disabled = this.viewingIndex === 0;
+                dom.nextMoveBtn.disabled = this.viewingIndex === maxTurn;
+                dom.lastMoveBtn.disabled = this.viewingIndex === maxTurn;
+            }
+
+            // ───────────── 評価バー ─────────────
+            // 解析中は探索由来の動的評価（ラウンドが進むごとに深くなる）を優先表示し、
+            // 非解析時はメインスレッドの静的評価（1局面の即時評価）を表示する。
+            updateEvalBar() {
+                // 解析中: analysisWorker の progress が返す白勝率（whiteWinProb）で更新する。
+                // プレビュー中でも解析対象局面の評価を保つため、盤面（currentTurnState）ではなく
+                // 直近の解析結果を用いる。
+                if (this.analyzing && this.lastAnalysisCurrent &&
+                    typeof this.lastAnalysisCurrent.whiteWinProb === 'number') {
+                    const prob = this.lastAnalysisCurrent.whiteWinProb;
+                    const round = this.lastAnalysisDepth;
+                    dom.evalBarWhite.style.width = `${(prob * 100).toFixed(1)}%`;
+                    dom.evalBarLabel.textContent =
+                        `白勝率: ${(prob * 100).toFixed(1)}%（探索R${round ?? '-'}）`;
                     return;
                 }
-                this.renderHeuristicBar(state, '');
-            }
 
-            // heuristic 評価でバーを描画する（白視点に正規化）。
-            renderHeuristicBar(state, suffix) {
-                const rawScore = evaluate(state, state.currentPlayer, WEIGHTS);
-                const whiteScore = state.currentPlayer === 'white' ? rawScore : -rawScore;
-                const pct = 100 / (1 + Math.exp(-whiteScore / 20));
-                dom.evalBarWhite.style.width = `${pct.toFixed(1)}%`;
-                dom.evalBarLabel.textContent = `heuristic 白視点: ${whiteScore.toFixed(1)}${suffix || ''}`;
-            }
-
-            // NNUE ネットを（キャッシュ経由で）ロードし、完了後に再描画をトリガする。
-            ensureEvalNetLoaded(netPath) {
-                if (!this.resolvedEvalNets) this.resolvedEvalNets = {};
-                if (this._evalNetLoading === netPath) return; // 二重ロード防止
-                this._evalNetLoading = netPath;
-                loadEvalNet(netPath)
-                    .then((net) => {
-                        this.resolvedEvalNets[netPath] = net;
-                        this._evalNetLoading = null;
-                        // まだ同じモデルが選択されていれば再描画
-                        if (this.nnueNetPath === netPath) this.renderDevPanel();
-                    })
-                    .catch((err) => {
-                        this._evalNetLoading = null;
-                        console.error('評価バー用NNUEロード失敗:', err);
-                        dom.evalBarLabel.textContent = 'NNUE読込エラー（heuristic表示）';
-                    });
-            }
-
-            renderDevPanel() {
-                // 評価バー: 白視点に正規化。選択中のエンジン（NNUE / heuristic）に追随する。
+                // 非解析時: 静的評価（nnue-lab.html を踏襲）。
+                // 構築初期（newGame→stopAnalysis）では currentTurnState 未初期化のため何もしない。
+                if (!this.currentTurnState) return;
                 const state = {
                     board: this.currentTurnState.board,
                     summonCounts: this.currentTurnState.summonCounts,
                     currentPlayer: this.currentTurnState.currentPlayer,
                     boardSize: this.boardSize,
                 };
-                this.updateEvalBar(state);
 
-                dom.statCurrentPlayer.textContent = this.currentTurnState.currentPlayer === 'white' ? '白' : '黒';
-
-                const isSummonPhaseOver = this.currentTurnState.summonCounts.white === this.maxSummons &&
-                    this.currentTurnState.summonCounts.black === this.maxSummons;
-                dom.statSummonPhase.textContent = isSummonPhaseOver ? '終了（排除/移動可）' : '進行中';
-
-                let legalCount = '-';
-                try {
-                    legalCount = generateTurns(state).length;
-                } catch (e) {
-                    legalCount = 'エラー';
+                const net = this.resolvedEvalNets[ANALYSIS_NET_PATH];
+                if (net) {
+                    // 白視点の生スコア（logit）→ シグモイドで白勝率へ
+                    const whiteLogit = net.evaluateState(state, 'white');
+                    const prob = 1 / (1 + Math.exp(-whiteLogit));
+                    dom.evalBarWhite.style.width = `${(prob * 100).toFixed(1)}%`;
+                    dom.evalBarLabel.textContent = `白勝率: ${(prob * 100).toFixed(1)}%（静的）`;
+                    return;
                 }
-                dom.statLegalCount.textContent = legalCount;
+                this.ensureEvalNetLoaded();
+                dom.evalBarLabel.textContent = '読込中…';
+            }
 
-                dom.statRemainingSummons.textContent =
-                    `${this.maxSummons - this.currentTurnState.summonCounts.white} / ${this.maxSummons - this.currentTurnState.summonCounts.black}`;
-
-                if (this.lastSearchInfo) {
-                    dom.statDepth.textContent = this.lastSearchInfo.depthReached ?? '-';
-                    dom.statNodes.textContent = this.lastSearchInfo.nodes ?? '-';
-                    dom.statElapsed.textContent = this.lastSearchInfo.elapsedMs != null ? `${this.lastSearchInfo.elapsedMs}` : '-';
-                    dom.statScore.textContent = this.lastSearchInfo.score != null ? this.lastSearchInfo.score.toFixed?.(2) ?? this.lastSearchInfo.score : '-';
-                } else {
-                    dom.statDepth.textContent = '-';
-                    dom.statNodes.textContent = '-';
-                    dom.statElapsed.textContent = '-';
-                    dom.statScore.textContent = '-';
-                }
-
-                dom.moveHistory.innerHTML = this.moveHistory
-                    .slice(-30)
-                    .map((entry, idx) => {
-                        const moverLabel = entry.mover === 'white' ? '白' : '黒';
-                        const desc = entry.actions.map(a => {
-                            if (a.type === 'summon') return `召喚(${a.r},${a.c})`;
-                            if (a.type === 'eliminate') return `排除(${a.r},${a.c})`;
-                            if (a.type === 'move') return `移動(${a.from.r},${a.from.c})→(${a.to.r},${a.to.c})x${a.count}`;
-                            return a.type;
-                        }).join(' → ');
-                        return `<div>${idx + 1}. ${moverLabel}: ${desc}</div>`;
+            ensureEvalNetLoaded() {
+                if (this._evalNetLoading === ANALYSIS_NET_PATH) return; // 二重ロード防止
+                this._evalNetLoading = ANALYSIS_NET_PATH;
+                loadEvalNet(ANALYSIS_NET_PATH)
+                    .then((net) => {
+                        this.resolvedEvalNets[ANALYSIS_NET_PATH] = net;
+                        this._evalNetLoading = null;
+                        this.updateEvalBar();
                     })
-                    .join('');
-                dom.moveHistory.scrollTop = dom.moveHistory.scrollHeight;
+                    .catch((err) => {
+                        this._evalNetLoading = null;
+                        console.error('評価バー用NNUEロード失敗:', err);
+                        dom.evalBarLabel.textContent = 'NNUE読込エラー';
+                    });
+            }
+
+            // ───────────── 解析パネル描画 ─────────────
+            renderAnalysisControls() {
+                dom.analyzeStartBtn.classList.toggle('hidden', this.analyzing);
+                dom.analyzeStopBtn.classList.toggle('hidden', !this.analyzing);
+            }
+
+            renderAnalysisPanel() {
+                dom.analysisDepth.textContent = this.lastAnalysisDepth ?? '-';
+                dom.analysisElapsed.textContent = this.lastAnalysisElapsed ?? '-';
+
+                if (this.lastAnalysisCurrent) {
+                    const { score, winProb } = this.lastAnalysisCurrent;
+                    dom.analysisCurrentScore.textContent = typeof score === 'number' ? score.toFixed(2) : '-';
+                    dom.analysisCurrentWinprob.textContent = typeof winProb === 'number' ? `${(winProb * 100).toFixed(1)}%` : '-';
+                } else {
+                    dom.analysisCurrentScore.textContent = '-';
+                    dom.analysisCurrentWinprob.textContent = '-';
+                }
+
+                const candidates = this.lastAnalysisCandidates || [];
+                dom.candidatesList.innerHTML = '';
+                if (candidates.length === 0) {
+                    dom.candidatesList.innerHTML = '<p class="text-xs text-gray-400">解析結果はまだありません。「解析開始」を押してください。</p>';
+                    return;
+                }
+
+                candidates.forEach((cand, idx) => {
+                    const row = document.createElement('div');
+                    row.className = 'candidate-row flex items-center justify-between' + (cand.isWin ? ' is-win' : '');
+                    const scoreText = typeof cand.score === 'number' ? cand.score.toFixed(2) : String(cand.score);
+                    const winProbText = typeof cand.winProb === 'number' ? `${(cand.winProb * 100).toFixed(1)}%` : '-';
+                    row.innerHTML = `
+                        <span class="font-mono">${idx + 1}. ${cand.notation}${cand.isWin ? '<span class="win-badge">即勝ち</span>' : ''}</span>
+                        <span class="text-sm text-gray-600">score ${scoreText} / 勝率 ${winProbText}</span>
+                    `;
+                    row.addEventListener('mouseenter', () => this.setPreview(cand));
+                    row.addEventListener('mouseleave', () => this.clearPreview());
+                    row.addEventListener('click', () => this.setPreview(cand));
+                    dom.candidatesList.appendChild(row);
+                });
             }
         }
 
-        const lab = new NnueLab();
+        const tool = new AnalysisTool();
         // デバッグ用にコンソールから状態を確認できるようにする
-        window.__nnueLab = lab;
+        window.__analysisTool = tool;
     </script>
 </body>
 </html>

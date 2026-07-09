@@ -97,11 +97,26 @@ export function createNetwork(weightsFloat32Array, meta) {
   const W4 = offsets.W4;
   const b4 = offsets.b4;
 
+  // ── stack encoder（セル共有重みの per-cell エンコーダ）: meta.stackEncoder
+  //    が存在する場合のみ有効化。存在しない旧モデルは従来の forward のまま。
+  const hasStackEncoder = !!(meta.stackEncoder && offsets.Wenc && offsets.benc);
+  const E = hasStackEncoder ? meta.stackEncoder.dim : 0;
+  const NUM_CELLS = hasStackEncoder ? featureDim / 16 : 0; // 16 = MAX_DEPTH(8) * 2colors
+  const CELL_SLOT_DIM = 16;
+  const Wenc = hasStackEncoder ? offsets.Wenc : null;
+  const benc = hasStackEncoder ? offsets.benc : null;
+
+  const h1Len = H1 + (hasStackEncoder ? E : 0) + scalarDim;
+
   // 作業用バッファ（呼び出しごとの再確保を避ける）
   const a1 = new Float64Array(H1);
-  const h1 = new Float64Array(H1 + scalarDim);
+  const h1 = new Float64Array(h1Len);
   const a2 = new Float64Array(H2);
   const a3 = new Float64Array(H3);
+  const perCell = hasStackEncoder
+    ? new Float64Array(NUM_CELLS * CELL_SLOT_DIM)
+    : null;
+  const pooled = hasStackEncoder ? new Float64Array(E) : null;
 
   /**
    * 線形出力（活性化なしの生スコア）を計算する。
@@ -121,17 +136,50 @@ export function createNetwork(weightsFloat32Array, meta) {
       a1[o] = clippedReLU(sum, clipMin, clipMax);
     }
 
-    // h1 = concat(a1, scalars)
+    // h1 = concat(a1, [pooled encoder出力], scalars)
     for (let o = 0; o < H1; o++) {
       h1[o] = a1[o];
     }
+
+    if (hasStackEncoder) {
+      // perCell[cell][slot] を indices から再構築する（features.js の one-hot
+      // レイアウトと同じ: idx = cell*16 + slot, slot = depth*2 + color）。
+      perCell.fill(0);
+      for (let k = 0; k < indices.length; k++) {
+        const idx = indices[k];
+        const cell = (idx / CELL_SLOT_DIM) | 0;
+        const slot = idx % CELL_SLOT_DIM;
+        perCell[cell * CELL_SLOT_DIM + slot] += 1;
+      }
+
+      // 共有重み Wenc[E,16] / benc[E] を全セルに適用し、sum-pool する。
+      pooled.fill(0);
+      const wencBase = Wenc.offset;
+      const bencBase = benc.offset;
+      for (let cell = 0; cell < NUM_CELLS; cell++) {
+        const cellBase = cell * CELL_SLOT_DIM;
+        for (let e = 0; e < E; e++) {
+          let sum = weightsFloat32Array[bencBase + e];
+          const rowBase = wencBase + e * CELL_SLOT_DIM;
+          for (let d = 0; d < CELL_SLOT_DIM; d++) {
+            sum += weightsFloat32Array[rowBase + d] * perCell[cellBase + d];
+          }
+          pooled[e] += clippedReLU(sum, clipMin, clipMax);
+        }
+      }
+
+      for (let e = 0; e < E; e++) {
+        h1[H1 + e] = pooled[e];
+      }
+    }
+
+    const encOffset = hasStackEncoder ? E : 0;
     for (let s = 0; s < scalarDim; s++) {
-      h1[H1 + s] = scalars[s];
+      h1[H1 + encOffset + s] = scalars[s];
     }
 
     // L2: 密結合
     const w2base = W2.offset;
-    const h1Len = H1 + scalarDim;
     for (let o = 0; o < H2; o++) {
       let sum = weightsFloat32Array[b2.offset + o];
       const rowBase = w2base + o * h1Len;
