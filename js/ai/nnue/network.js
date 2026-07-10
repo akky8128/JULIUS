@@ -110,10 +110,15 @@ export function createNetwork(weightsFloat32Array, meta) {
   const hasScalarInL1 = !!(meta.scalarInL1 && offsets.Ws1);
   const Ws1 = hasScalarInL1 ? offsets.Ws1 : null;
 
-  const h1Len = H1 + (hasStackEncoder ? E : 0) + scalarDim;
+  // ── 純エンコーダ版: meta.noFcPath が true の場合、従来の全結合L1(a1)経路を
+  //    使わず、スタックエンコーダの pooled 出力のみで h1 を構成する。
+  const hasNoFcPath = !!meta.noFcPath;
+  const h1FcContrib = hasNoFcPath ? 0 : H1;
+
+  const h1Len = h1FcContrib + (hasStackEncoder ? E : 0) + scalarDim;
 
   // 作業用バッファ（呼び出しごとの再確保を避ける）
-  const a1 = new Float64Array(H1);
+  const a1 = hasNoFcPath ? null : new Float64Array(H1);
   const h1 = new Float64Array(h1Len);
   const a2 = new Float64Array(H2);
   const a3 = new Float64Array(H3);
@@ -129,27 +134,29 @@ export function createNetwork(weightsFloat32Array, meta) {
    * @returns {number}
    */
   function evaluate(indices, scalars) {
-    // L1: 疎 accumulator。o についてループし、各 active idx を加算する。
-    const w1base = W1.offset;
-    const ws1base = hasScalarInL1 ? Ws1.offset : 0;
-    for (let o = 0; o < H1; o++) {
-      let sum = weightsFloat32Array[b1.offset + o];
-      const rowBase = w1base + o * featureDim;
-      for (let k = 0; k < indices.length; k++) {
-        sum += weightsFloat32Array[rowBase + indices[k]];
-      }
-      if (hasScalarInL1) {
-        const ws1RowBase = ws1base + o * scalarDim;
-        for (let s = 0; s < scalarDim; s++) {
-          sum += weightsFloat32Array[ws1RowBase + s] * scalars[s];
+    if (!hasNoFcPath) {
+      // L1: 疎 accumulator。o についてループし、各 active idx を加算する。
+      const w1base = W1.offset;
+      const ws1base = hasScalarInL1 ? Ws1.offset : 0;
+      for (let o = 0; o < H1; o++) {
+        let sum = weightsFloat32Array[b1.offset + o];
+        const rowBase = w1base + o * featureDim;
+        for (let k = 0; k < indices.length; k++) {
+          sum += weightsFloat32Array[rowBase + indices[k]];
         }
+        if (hasScalarInL1) {
+          const ws1RowBase = ws1base + o * scalarDim;
+          for (let s = 0; s < scalarDim; s++) {
+            sum += weightsFloat32Array[ws1RowBase + s] * scalars[s];
+          }
+        }
+        a1[o] = clippedReLU(sum, clipMin, clipMax);
       }
-      a1[o] = clippedReLU(sum, clipMin, clipMax);
-    }
 
-    // h1 = concat(a1, [pooled encoder出力], scalars)
-    for (let o = 0; o < H1; o++) {
-      h1[o] = a1[o];
+      // h1 = concat(a1, [pooled encoder出力], scalars)
+      for (let o = 0; o < H1; o++) {
+        h1[o] = a1[o];
+      }
     }
 
     if (hasStackEncoder) {
@@ -180,13 +187,13 @@ export function createNetwork(weightsFloat32Array, meta) {
       }
 
       for (let e = 0; e < E; e++) {
-        h1[H1 + e] = pooled[e];
+        h1[h1FcContrib + e] = pooled[e];
       }
     }
 
     const encOffset = hasStackEncoder ? E : 0;
     for (let s = 0; s < scalarDim; s++) {
-      h1[H1 + encOffset + s] = scalars[s];
+      h1[h1FcContrib + encOffset + s] = scalars[s];
     }
 
     // L2: 密結合

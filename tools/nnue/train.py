@@ -56,6 +56,9 @@ def parse_args():
                    help="E: shared per-cell stack-encoder output dim (0 = disabled, current behavior)")
     p.add_argument("--scalar-in-l1", action="store_true",
                    help="scalars を L1(a1) 経路にも注入する(既存のL2直結concatは維持、追加の経路)")
+    p.add_argument("--no-fc-path", action="store_true",
+                   help="従来の全結合L1(a1)経路を削除し、スタックエンコーダのpooled出力のみで"
+                        "h1を構成する(純エンコーダ版)。--stack-encoder-dim>0が必須。")
     return p.parse_args()
 
 
@@ -164,7 +167,7 @@ class ClippedReLU:
     pass
 
 
-def build_model(feature_dim, scalar_dim, h1, h2, h3, stack_encoder_dim=0, scalar_in_l1=False):
+def build_model(feature_dim, scalar_dim, h1, h2, h3, stack_encoder_dim=0, scalar_in_l1=False, no_fc_path=False):
     """
     stack_encoder_dim > 0 の場合、共有重みの per-cell スタックエンコーダ
     (Linear(16 -> E) をセル毎に同じ重みで適用し、16セル分を sum-pool する)
@@ -188,23 +191,27 @@ def build_model(feature_dim, scalar_dim, h1, h2, h3, stack_encoder_dim=0, scalar
             super().__init__()
             self.stack_encoder_dim = stack_encoder_dim
             self.scalar_in_l1 = scalar_in_l1
+            self.no_fc_path = no_fc_path
             self.num_cells = num_cells
-            self.l1 = nn.Linear(feature_dim, h1)
+            if not no_fc_path:
+                self.l1 = nn.Linear(feature_dim, h1)
             if stack_encoder_dim > 0:
                 self.enc = nn.Linear(CELL_SLOT_DIM, stack_encoder_dim)
-            if scalar_in_l1:
+            if scalar_in_l1 and not no_fc_path:
                 self.ls1 = nn.Linear(scalar_dim, h1, bias=False)
-            l2_in = h1 + stack_encoder_dim + scalar_dim
+            l2_in = (0 if no_fc_path else h1) + stack_encoder_dim + scalar_dim
             self.l2 = nn.Linear(l2_in, h2)
             self.l3 = nn.Linear(h2, h3)
             self.l4 = nn.Linear(h3, 1)
 
         def forward(self, x, s):
-            pre1 = self.l1(x)
-            if self.scalar_in_l1:
-                pre1 = pre1 + self.ls1(s)
-            a1 = torch.clamp(pre1, 0.0, 1.0)
-            parts = [a1]
+            parts = []
+            if not self.no_fc_path:
+                pre1 = self.l1(x)
+                if self.scalar_in_l1:
+                    pre1 = pre1 + self.ls1(s)
+                a1 = torch.clamp(pre1, 0.0, 1.0)
+                parts.append(a1)
             if self.stack_encoder_dim > 0:
                 # x[:, :feature_dim] -> [B, num_cells, 16] (共有重み Wenc/benc を全セルに適用)
                 per_cell = x.view(x.shape[0], self.num_cells, CELL_SLOT_DIM)
@@ -355,20 +362,24 @@ def train_model(model, device, x_dense, scalars, y, train_idx, val_idx, args):
     return model, best_val_loss, last_train_loss, best_epoch, epoch
 
 
-def write_bin(path, model, stack_encoder_dim=0, scalar_in_l1=False):
+def write_bin(path, model, stack_encoder_dim=0, scalar_in_l1=False, no_fc_path=False):
     """Write weights in float32 little-endian, in the fixed tensor order.
     When stack_encoder_dim > 0, append Wenc/benc (tensors[8],[9]) after the
     original 8 tensors (tensors[0..7] ordering/format is unchanged for
     backward compatibility with legacy models). When scalar_in_l1, append
-    Ws1 last (after Wenc/benc if present)."""
+    Ws1 last (after Wenc/benc if present). When no_fc_path, l1.weight/l1.bias
+    are omitted entirely (pure-encoder variant, requires stack_encoder_dim>0)."""
     import numpy as np
 
     sd = model.state_dict()
-    order = ["l1.weight", "l1.bias", "l2.weight", "l2.bias",
-             "l3.weight", "l3.bias", "l4.weight", "l4.bias"]
+    if no_fc_path:
+        order = ["l2.weight", "l2.bias", "l3.weight", "l3.bias", "l4.weight", "l4.bias"]
+    else:
+        order = ["l1.weight", "l1.bias", "l2.weight", "l2.bias",
+                  "l3.weight", "l3.bias", "l4.weight", "l4.bias"]
     if stack_encoder_dim > 0:
         order += ["enc.weight", "enc.bias"]
-    if scalar_in_l1:
+    if scalar_in_l1 and not no_fc_path:
         order += ["ls1.weight"]
 
     with open(path, "wb") as f:
@@ -468,8 +479,13 @@ def main():
 
     device = resolve_device(args.device)
 
+    if args.no_fc_path and args.stack_encoder_dim <= 0:
+        print("ERROR: --no-fc-path には --stack-encoder-dim > 0 が必須です。", file=sys.stderr)
+        sys.exit(1)
+
     model = build_model(feature_dim, scalar_dim, args.hidden1, args.hidden2, args.hidden3,
-                         stack_encoder_dim=args.stack_encoder_dim, scalar_in_l1=args.scalar_in_l1)
+                         stack_encoder_dim=args.stack_encoder_dim, scalar_in_l1=args.scalar_in_l1,
+                         no_fc_path=args.no_fc_path)
 
     model, best_val_loss, last_train_loss, best_epoch, epochs_run = train_model(
         model, device, x_dense, scalars, y, train_idx, val_idx, args
@@ -484,28 +500,40 @@ def main():
     json_path = os.path.join(args.out_dir, f"{gen_tag}.json")
     golden_path = os.path.join(args.out_dir, f"{gen_tag}.golden.json")
 
-    write_bin(bin_path, model, stack_encoder_dim=args.stack_encoder_dim, scalar_in_l1=args.scalar_in_l1)
+    write_bin(bin_path, model, stack_encoder_dim=args.stack_encoder_dim, scalar_in_l1=args.scalar_in_l1,
+              no_fc_path=args.no_fc_path)
     print(f"[train] Wrote weights: {bin_path}")
 
     CELL_SLOT_DIM = 16
-    h2_input_dim = args.hidden1 + scalar_dim + (args.stack_encoder_dim if args.stack_encoder_dim > 0 else 0)
+    h1_contrib = 0 if args.no_fc_path else args.hidden1
+    h2_input_dim = h1_contrib + scalar_dim + (args.stack_encoder_dim if args.stack_encoder_dim > 0 else 0)
 
-    tensors = [
-        {"name": "W1", "shape": [args.hidden1, feature_dim]},
-        {"name": "b1", "shape": [args.hidden1]},
-        {"name": "W2", "shape": [args.hidden2, h2_input_dim]},
-        {"name": "b2", "shape": [args.hidden2]},
-        {"name": "W3", "shape": [args.hidden3, args.hidden2]},
-        {"name": "b3", "shape": [args.hidden3]},
-        {"name": "W4", "shape": [1, args.hidden3]},
-        {"name": "b4", "shape": [1]},
-    ]
+    if args.no_fc_path:
+        tensors = [
+            {"name": "W2", "shape": [args.hidden2, h2_input_dim]},
+            {"name": "b2", "shape": [args.hidden2]},
+            {"name": "W3", "shape": [args.hidden3, args.hidden2]},
+            {"name": "b3", "shape": [args.hidden3]},
+            {"name": "W4", "shape": [1, args.hidden3]},
+            {"name": "b4", "shape": [1]},
+        ]
+    else:
+        tensors = [
+            {"name": "W1", "shape": [args.hidden1, feature_dim]},
+            {"name": "b1", "shape": [args.hidden1]},
+            {"name": "W2", "shape": [args.hidden2, h2_input_dim]},
+            {"name": "b2", "shape": [args.hidden2]},
+            {"name": "W3", "shape": [args.hidden3, args.hidden2]},
+            {"name": "b3", "shape": [args.hidden3]},
+            {"name": "W4", "shape": [1, args.hidden3]},
+            {"name": "b4", "shape": [1]},
+        ]
     if args.stack_encoder_dim > 0:
         tensors += [
             {"name": "Wenc", "shape": [args.stack_encoder_dim, CELL_SLOT_DIM]},
             {"name": "benc", "shape": [args.stack_encoder_dim]},
         ]
-    if args.scalar_in_l1:
+    if args.scalar_in_l1 and not args.no_fc_path:
         tensors += [
             {"name": "Ws1", "shape": [args.hidden1, scalar_dim]},
         ]
@@ -544,8 +572,10 @@ def main():
     }
     if args.stack_encoder_dim > 0:
         meta["stackEncoder"] = {"dim": args.stack_encoder_dim, "cellSlotDim": CELL_SLOT_DIM}
-    if args.scalar_in_l1:
+    if args.scalar_in_l1 and not args.no_fc_path:
         meta["scalarInL1"] = True
+    if args.no_fc_path:
+        meta["noFcPath"] = True
 
     write_json(json_path, meta)
     print(f"[train] Wrote metadata: {json_path}")
