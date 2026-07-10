@@ -106,6 +106,10 @@ export function createNetwork(weightsFloat32Array, meta) {
   const Wenc = hasStackEncoder ? offsets.Wenc : null;
   const benc = hasStackEncoder ? offsets.benc : null;
 
+  // ── scalars を a1(L1)経路にも注入: meta.scalarInL1 が true の場合のみ有効化。
+  const hasScalarInL1 = !!(meta.scalarInL1 && offsets.Ws1);
+  const Ws1 = hasScalarInL1 ? offsets.Ws1 : null;
+
   const h1Len = H1 + (hasStackEncoder ? E : 0) + scalarDim;
 
   // 作業用バッファ（呼び出しごとの再確保を避ける）
@@ -127,11 +131,18 @@ export function createNetwork(weightsFloat32Array, meta) {
   function evaluate(indices, scalars) {
     // L1: 疎 accumulator。o についてループし、各 active idx を加算する。
     const w1base = W1.offset;
+    const ws1base = hasScalarInL1 ? Ws1.offset : 0;
     for (let o = 0; o < H1; o++) {
       let sum = weightsFloat32Array[b1.offset + o];
       const rowBase = w1base + o * featureDim;
       for (let k = 0; k < indices.length; k++) {
         sum += weightsFloat32Array[rowBase + indices[k]];
+      }
+      if (hasScalarInL1) {
+        const ws1RowBase = ws1base + o * scalarDim;
+        for (let s = 0; s < scalarDim; s++) {
+          sum += weightsFloat32Array[ws1RowBase + s] * scalars[s];
+        }
       }
       a1[o] = clippedReLU(sum, clipMin, clipMax);
     }
