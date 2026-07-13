@@ -106,12 +106,15 @@ function level2Choose(state) {
 }
 
 /**
- * レベル3: 反復深化 α-β 探索（depth 4, 1000ms）
+ * レベル3: 反復深化 α-β 探索（既定 depth 4, 1000ms。
+ * options.maxDepth / options.timeBudgetMs で上書き可能）
  */
-function level3Choose(state) {
+function level3Choose(state, options) {
+  const maxDepth = (options && Number.isFinite(options.maxDepth)) ? options.maxDepth : 4;
+  const timeBudgetMs = (options && Number.isFinite(options.timeBudgetMs)) ? options.timeBudgetMs : 1000;
   const result = findBestTurn(state, {
-    maxDepth: 4,
-    timeBudgetMs: 1000,
+    maxDepth,
+    timeBudgetMs,
     weights: WEIGHTS,
     rng: Math.random,
   });
@@ -128,7 +131,7 @@ function level3Choose(state) {
 // ───────────────────────── メッセージハンドラ ─────────────────────────
 
 self.onmessage = (event) => {
-  const { requestId, state: rawState, level } = event.data;
+  const { requestId, state: rawState, level, options } = event.data;
 
   try {
     // board を正規化（denormalized (0 や null) でも normalized でも受け付ける）
@@ -146,7 +149,7 @@ self.onmessage = (event) => {
     if (level === 1) {
       result = level1Choose(state);
     } else if (level === 3) {
-      result = level3Choose(state);
+      result = level3Choose(state, options);
     } else {
       // デフォルトはレベル2（ふつう）
       result = level2Choose(state);

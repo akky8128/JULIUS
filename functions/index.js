@@ -4,6 +4,9 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 import admin from "firebase-admin";
 import crypto from "crypto";
 import {simulateTurn, checkWinCondition, normalizeBoard, computeTimersAfterTurn, GameLogicError} from "./gameLogic.js";
+import {requestIdaMove} from "./idaMove.js";
+
+export {requestIdaMove};
 
 const MAX_ACTIONS_PER_TURN = 64;
 const MAX_NICKNAME_LENGTH = 50;
@@ -88,8 +91,8 @@ export const createGame = onCall(async (request) => {
     status = "in_progress";
   } else if (settings.gameType === "cpu") {
     const cpuLevel = Number(settings.cpuLevel);
-    if (![1, 2, 3].includes(cpuLevel)) {
-      throw new HttpsError("invalid-argument", "CPU level must be 1, 2, or 3.");
+    if (![1, 2, 3, 4, 5].includes(cpuLevel)) {
+      throw new HttpsError("invalid-argument", "CPU level must be between 1 and 5.");
     }
     const playerColor = settings.playerColor;
     if (!["white", "black", "random"].includes(playerColor)) {

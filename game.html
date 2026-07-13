@@ -232,6 +232,21 @@
         const endOfflineGame = httpsCallable(functions, 'endOfflineGame');
         const createGame = httpsCallable(functions, 'createGame');
         const createInvitation = httpsCallable(functions, 'createInvitation');
+        const requestIdaMove = httpsCallable(functions, 'requestIdaMove');
+
+        // CPUの強さ 1(最弱)〜5(最強)。create.html のスライダーと対応させること。
+        // engine:'worker' は js/ai/aiWorker.js（ローカル計算）、
+        // engine:'ida' は Cloud Function 'requestIdaMove'（gen137 NNUE、重みはサーバー限定）。
+        const CPU_LEVEL_CONFIG = {
+            1: { label: 'ランダム', engine: 'worker', workerLevel: 1 },
+            2: { label: 'ヒューリスティック（深度2）', engine: 'worker', workerLevel: 3, workerOptions: { maxDepth: 2, timeBudgetMs: 2000 } },
+            3: { label: 'ヒューリスティック（深度4）', engine: 'worker', workerLevel: 3, workerOptions: { maxDepth: 4, timeBudgetMs: 2000 } },
+            4: { label: 'IDA v1（500ms）', engine: 'ida', strength: 'fast' },
+            5: { label: 'IDA v1（5000ms）', engine: 'ida', strength: 'deep' },
+        };
+        function cpuLevelLabel(level) {
+            return (CPU_LEVEL_CONFIG[level] || CPU_LEVEL_CONFIG[3]).label;
+        }
 
         // ニックネームなどユーザー入力を含む値を安全にリンク付きで表示するヘルパー
         // CPUモードでは uid が 'human' / 'cpu' の疑似IDになるため、リンクを生成しない
@@ -276,7 +291,7 @@
                 // CPUモード用プロパティ
                 this.cpuColor = null;       // 'white' | 'black'
                 this.humanColor = null;     // 'white' | 'black'
-                this.cpuLevel = 2;          // 1 | 2 | 3
+                this.cpuLevel = 3;          // 1..5
                 this.cpuWorker = null;      // Worker インスタンス（一度作成して使い回す）
                 this.cpuRequestId = 0;      // リクエストID（古い返答を無視するため）
                 this.cpuThinking = false;   // CPU思考中フラグ（ボードクリックを無効化）
@@ -328,6 +343,7 @@
                     nextMoveBtn: document.getElementById('next-move-btn'),
                     lastMoveBtn: document.getElementById('last-move-btn'),
                     turnDisplay: document.getElementById('turn-display'),
+                    kifuScroll: document.getElementById('kifu-scroll'),
                     kifuText: document.getElementById('kifu-text'),
                     modal: document.getElementById('modal'),
                     modalTitle: document.getElementById('modal-title'),
@@ -479,13 +495,13 @@
 
             /**
              * CPUモード（未ログイン・ローカル対局）の初期化。
-             * URLパラメータ: level=1|2|3, size=3..8, color=white|black|random,
+             * URLパラメータ: level=1..5, size=3..8, color=white|black|random,
              *                timeEnabled=0|1, timeLimit=分, delay=秒
              */
             initCpuMode(urlParams) {
                 // パラメータ解析
-                const levelParam = parseInt(urlParams.get('level')) || 2;
-                this.cpuLevel = (levelParam >= 1 && levelParam <= 3) ? levelParam : 2;
+                const levelParam = parseInt(urlParams.get('level')) || 3;
+                this.cpuLevel = (levelParam >= 1 && levelParam <= 5) ? levelParam : 3;
 
                 const sizeParam = parseInt(urlParams.get('size')) || 4;
                 const boardSize = Math.max(3, Math.min(8, sizeParam));
@@ -500,8 +516,7 @@
                 const timeControl = this.parseTimeControlParams(urlParams);
 
                 // CPUレベル名（表示用）
-                const levelNames = { 1: 'よわい', 2: 'ふつう', 3: 'つよい' };
-                const cpuNickname = `CPU (${levelNames[this.cpuLevel] || 'ふつう'})`;
+                const cpuNickname = `CPU (${cpuLevelLabel(this.cpuLevel)})`;
 
                 // プレイヤー情報設定
                 const humanNickname = 'あなた';
@@ -921,26 +936,36 @@
                 if (wasFirstLoad && this.mode === 'cpu' && this.cpuPersisted) {
                     // 保存されるCPU対局: gameSettings.cpu からCPUの色・強さを復元し、
                     // 人間側のプロフィールだけFirebaseから取得、CPU側は合成する。
-                    const cpuMeta = this.gameData.meta.gameSettings.cpu || { level: 2, color: 'black' };
+                    const cpuMeta = this.gameData.meta.gameSettings.cpu || { level: 3, color: 'black' };
                     this.cpuLevel = cpuMeta.level;
                     this.cpuColor = cpuMeta.color;
                     this.humanColor = this.cpuColor === 'white' ? 'black' : 'white';
 
-                    const levelNames = { 1: 'よわい', 2: 'ふつう', 3: 'つよい' };
                     const humanUid = this.gameData.meta.players[this.humanColor];
                     this.playerProfiles[this.humanColor] = await this.fetchUserProfile(humanUid);
-                    this.playerProfiles[this.cpuColor] = { nickname: `CPU (${levelNames[this.cpuLevel] || 'ふつう'})` };
+                    this.playerProfiles[this.cpuColor] = { nickname: `CPU (${cpuLevelLabel(this.cpuLevel)})` };
 
                     this.setupCpuWorker();
                 } else if (wasFirstLoad && !this.isLocalOnlyGame) {
                     const { white: whiteUid, black: blackUid } = this.gameData.meta.players;
-                    if (whiteUid) {
-                        this.playerProfiles.white = await this.fetchUserProfile(whiteUid);
-                    }
-                    if (blackUid && blackUid !== whiteUid) { // オンライン対戦で黒プレイヤーが違う場合
-                        this.playerProfiles.black = await this.fetchUserProfile(blackUid);
-                    } else if (blackUid === whiteUid) { // オフライン対戦
-                        this.playerProfiles.black = this.playerProfiles.white;
+                    const cpuMeta = this.gameData.meta.gameSettings?.cpu;
+                    if (cpuMeta) {
+                        // 観戦中のCPU対局: white/black は同一uid(所有者)のため、CPUの色側は
+                        // 人間のプロフィールではなくCPUモデル名を表示する（両方が同じ名前になる問題の修正）。
+                        const cpuColor = cpuMeta.color;
+                        const humanColor = cpuColor === 'white' ? 'black' : 'white';
+                        const humanUid = this.gameData.meta.players[humanColor];
+                        this.playerProfiles[humanColor] = await this.fetchUserProfile(humanUid);
+                        this.playerProfiles[cpuColor] = { nickname: `CPU (${cpuLevelLabel(cpuMeta.level)})` };
+                    } else {
+                        if (whiteUid) {
+                            this.playerProfiles.white = await this.fetchUserProfile(whiteUid);
+                        }
+                        if (blackUid && blackUid !== whiteUid) { // オンライン対戦で黒プレイヤーが違う場合
+                            this.playerProfiles.black = await this.fetchUserProfile(blackUid);
+                        } else if (blackUid === whiteUid) { // オフライン対戦
+                            this.playerProfiles.black = this.playerProfiles.white;
+                        }
                     }
                 }
 
@@ -1102,7 +1127,19 @@
                 const activeEl = this.dom.kifuText.querySelector(`.kifu-move[data-half-index="${activeIndex}"]`);
                 if (activeEl) {
                     activeEl.classList.add('kifu-active');
-                    activeEl.scrollIntoView({ block: 'nearest', inline: 'center' });
+                    // scrollIntoView は祖先のスクロール可能要素を辿って画面全体を動かすことがあるため、
+                    // #kifu-scroll 自身の scrollLeft だけを直接計算して設定する（他要素は一切動かさない）。
+                    // offsetLeft は「最も近い position 指定済み祖先」からの相対値であり、
+                    // #kifu-scroll/#kifu-text はどちらも position: static なため offsetLeft は
+                    // コンテナ内での位置と一致しない（追従がずれる原因）。
+                    // getBoundingClientRect の差分なら祖先の position 指定に関係なく
+                    // 「コンテナ内での現在のスクロール位置を含めた絶対位置」を正しく求められる。
+                    const container = this.dom.kifuScroll;
+                    const containerRect = container.getBoundingClientRect();
+                    const elRect = activeEl.getBoundingClientRect();
+                    const elOffsetWithinContainer = container.scrollLeft + (elRect.left - containerRect.left);
+                    const target = elOffsetWithinContainer - (container.clientWidth / 2) + (elRect.width / 2);
+                    container.scrollLeft = Math.max(0, target);
                 }
             }
 
@@ -1275,9 +1312,14 @@
                 const whiteNickname = whiteProfile?.nickname || 'ゲスト';
                 const blackNickname = blackProfile?.nickname || (blackUid === 0 ? '対戦相手待ち' : 'ゲスト');
 
-                // 保存されるCPU対局では white/black が同一uid(人間)のため、CPU側は人間のプロフィールへリンクさせない
-                const whiteIsCpuSlot = this.mode === 'cpu' && this.cpuPersisted && this.cpuColor === 'white';
-                const blackIsCpuSlot = this.mode === 'cpu' && this.cpuPersisted && this.cpuColor === 'black';
+                // CPU対局では white/black が同一uid(人間)のため、CPU側は人間のプロフィールへリンクさせない。
+                // 自分のCPU対局(mode=cpu)でも、他人のCPU対局の観戦(mode=spectate)でも同様に扱う。
+                const cpuMeta = this.gameData.meta.gameSettings?.cpu;
+                const spectatingCpu = this.mode === 'spectate' && !!cpuMeta;
+                const cpuSlotColor = (this.mode === 'cpu' && this.cpuPersisted) ? this.cpuColor
+                    : (spectatingCpu ? cpuMeta.color : null);
+                const whiteIsCpuSlot = cpuSlotColor === 'white';
+                const blackIsCpuSlot = cpuSlotColor === 'black';
                 renderPlayerNameLink(document.getElementById('white-player-name'), whiteIsCpuSlot ? null : whiteUid, whiteNickname, 'プレイヤー1');
                 renderPlayerNameLink(document.getElementById('black-player-name'), blackIsCpuSlot ? null : blackUid, blackNickname, 'プレイヤー2');
 
@@ -1807,8 +1849,10 @@
             }
 
             /**
-             * CPUの手番を Worker に依頼して、返答が来たらローカルコミットする。
-             * 最低600msの待機時間を設けてゲーム感を演出する。
+             * CPUの手番を計算エンジンに依頼して、返答が来たらローカルコミットする。
+             * CPU_LEVEL_CONFIG[this.cpuLevel].engine に応じて
+             * 'worker'（js/ai/aiWorker.js・ローカル計算）か
+             * 'ida'（Cloud Function requestIdaMove・gen137 NNUE）に振り分ける。
              */
             triggerCpuTurn() {
                 if (this.cpuThinking) return; // 既に思考中なら二重起動しない
@@ -1816,10 +1860,17 @@
                 this.setMessage('CPUが考えています…');
                 this.render(); // ボード操作ボタンを非表示にするため再描画
 
+                const config = CPU_LEVEL_CONFIG[this.cpuLevel] || CPU_LEVEL_CONFIG[3];
+                const requestId = ++this.cpuRequestId;
+                this._cpuSendTime = Date.now();
+
+                if (config.engine === 'ida') {
+                    this.triggerIdaTurn(config, requestId);
+                    return;
+                }
+
                 const latestMove = this.gameData.moves[this.gameData.moves.length - 1];
                 const { boardSize } = this.gameData.meta.gameSettings;
-                const requestId = ++this.cpuRequestId;
-                const sendTime = Date.now();
 
                 this.cpuWorker.postMessage({
                     requestId,
@@ -1829,31 +1880,65 @@
                         currentPlayer: latestMove.currentPlayer,
                         boardSize,
                     },
-                    level: this.cpuLevel,
+                    level: config.workerLevel,
+                    options: config.workerOptions,
                 });
 
                 // handleWorkerMessage 内で requestId チェックして処理する
-                // sendTime は closure で参照される
-                this._cpuSendTime = sendTime;
             }
 
             /**
              * Worker からの返答を処理する。
              */
             handleWorkerMessage(data) {
-                const { requestId, turn, info, error } = data;
+                const { requestId, turn, error } = data;
 
                 // 古いリクエストの返答は無視する
                 if (requestId !== this.cpuRequestId) return;
 
+                this.resolveCpuTurn(requestId, { turn, error });
+            }
+
+            /**
+             * IDA v1（Cloud Function requestIdaMove）にCPUの手番を依頼する。
+             * NNUEの重みはサーバー側に留まり、クライアントには指し手だけが返る。
+             */
+            async triggerIdaTurn(config, requestId) {
+                const latestMove = this.gameData.moves[this.gameData.moves.length - 1];
+                const { boardSize } = this.gameData.meta.gameSettings;
+
+                try {
+                    const result = await requestIdaMove({
+                        board: latestMove.board,
+                        summonCounts: latestMove.summonCounts,
+                        currentPlayer: latestMove.currentPlayer,
+                        boardSize,
+                        strength: config.strength,
+                    });
+                    if (requestId !== this.cpuRequestId) return; // 古いリクエストは無視
+                    this.resolveCpuTurn(requestId, { turn: result.data.turn });
+                } catch (error) {
+                    if (requestId !== this.cpuRequestId) return;
+                    console.error('requestIdaMove failed:', error);
+                    this.resolveCpuTurn(requestId, { error: error.message || String(error) });
+                }
+            }
+
+            /**
+             * Worker/IDA共通: 最低600msの待機時間を設けてから（ゲーム感の演出）、
+             * CPUが選んだ手をコミットする。requestId は呼び出し時点で検証済みの前提。
+             */
+            resolveCpuTurn(requestId, { turn, error }) {
                 const elapsed = Date.now() - (this._cpuSendTime || Date.now());
                 const minDelay = 600; // ms: CPU が即座に返しても最低これだけ待つ
                 const remainingDelay = Math.max(0, minDelay - elapsed);
 
                 setTimeout(async () => {
+                    if (requestId !== this.cpuRequestId) return; // 待機中に新しいリクエストが来た場合は破棄
+
                     if (error) {
                         this.cpuThinking = false;
-                        console.error('AI Worker returned error:', error);
+                        console.error('CPU move failed:', error);
                         this.setMessage('CPUエラーが発生しました: ' + error);
                         this.render();
                         return;

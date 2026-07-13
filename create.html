@@ -69,11 +69,15 @@
 
                     <!-- CPUの強さ -->
                     <div id="cpu-level-section">
-                        <label class="block text-lg font-semibold text-gray-700">CPUの強さ</label>
-                        <div class="mt-2 flex space-x-4">
-                            <label><input type="radio" name="cpuLevel" value="1" class="mr-2">よわい</label>
-                            <label><input type="radio" name="cpuLevel" value="2" checked class="mr-2">ふつう</label>
-                            <label><input type="radio" name="cpuLevel" value="3" class="mr-2">つよい</label>
+                        <label for="cpu-level-slider" class="block text-lg font-semibold text-gray-700">CPUの強さ</label>
+                        <div class="mt-2">
+                            <input type="range" id="cpu-level-slider" name="cpuLevel" min="1" max="5" step="1" value="3" class="w-full">
+                            <div class="mt-2 flex justify-between text-xs text-gray-500">
+                                <span>よわい</span>
+                                <span>つよい</span>
+                            </div>
+                            <p id="cpu-level-label" class="mt-2 text-center font-semibold text-gray-800"></p>
+                            <p id="cpu-level-description" class="mt-1 text-center text-sm text-gray-500"></p>
                         </div>
                     </div>
 
@@ -149,6 +153,27 @@
         const timeControlToggle = document.getElementById('time-control-toggle');
         const timeSettingsPanel = document.getElementById('time-settings-panel');
         const form = document.getElementById('create-game-form');
+
+        // CPUの強さスライダー: 1(最弱)〜5(最強)。
+        // game.html 側の CPU_LEVEL_CONFIG と対応させること。
+        const CPU_LEVELS = {
+            1: { label: 'ランダム', description: '合法手からランダムに選択（即勝ちがあれば選ぶ）' },
+            2: { label: 'ヒューリスティック（深度2）', description: '2手先まで読む探索' },
+            3: { label: 'ヒューリスティック（深度4）', description: '4手先まで読む探索' },
+            4: { label: 'IDA v1（500ms）', description: 'NNUE評価によるサーバー側探索・短時間版' },
+            5: { label: 'IDA v1（5000ms）', description: 'NNUE評価によるサーバー側探索・じっくり版' },
+        };
+        const cpuLevelSlider = document.getElementById('cpu-level-slider');
+        const cpuLevelLabel = document.getElementById('cpu-level-label');
+        const cpuLevelDescription = document.getElementById('cpu-level-description');
+
+        function updateCpuLevelLabel() {
+            const info = CPU_LEVELS[cpuLevelSlider.value] || CPU_LEVELS[3];
+            cpuLevelLabel.textContent = info.label;
+            cpuLevelDescription.textContent = info.description;
+        }
+        cpuLevelSlider.addEventListener('input', updateCpuLevelLabel);
+        updateCpuLevelLabel();
 
         // Toggle visibility of time settings
         timeControlToggle.addEventListener('change', () => {

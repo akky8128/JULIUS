@@ -339,13 +339,23 @@
                 let resultText = '不明';
                 let resultColor = 'text-gray-500';
 
-                if (isParticipant && isInProgress) {
+                // Bug3修正: CPU対局の検出（gameSettings.cpu が存在する場合はCPU対局）
+                const cpuInfo = meta.gameSettings?.cpu;
+
+                if (cpuInfo) {
+                    // CPU対局: 本人（=対局の所有者）は mode=cpu で開く（自動着手・操作可）。
+                    // 他人のプロフィールから見る場合は参加者ではないため mode=spectate で観戦する。
+                    if (isParticipant) {
+                        linkUrl = `game.html?id=${game.id}&mode=cpu`;
+                        linkText = isInProgress ? '対局に戻る' : '対局を見る';
+                    } else {
+                        linkUrl = `game.html?id=${game.id}&mode=spectate`;
+                        linkText = '観戦する';
+                    }
+                } else if (isParticipant && isInProgress) {
                     linkUrl = `game.html?id=${game.id}&mode=play`;
                     linkText = '対局に戻る';
                 }
-
-                // Bug3修正: CPU対局の検出（gameSettings.cpu が存在する場合はCPU対局）
-                const cpuInfo = meta.gameSettings?.cpu;
 
                 if (cpuInfo) {
                     // CPU対局: 勝敗はプレイヤーの色（=CPUの色の逆）と winner を比較して判定
@@ -397,8 +407,14 @@
                 // Bug3修正: CPU対局では「CPU (よわい/ふつう/つよい)」をリンクなしspanで表示
                 let opponentNameEl;
                 if (cpuInfo) {
-                    const cpuLevelNames = { 1: 'よわい', 2: 'ふつう', 3: 'つよい' };
-                    const levelName = cpuLevelNames[cpuInfo.level] || 'ふつう';
+                    const cpuLevelNames = {
+                        1: 'ランダム',
+                        2: 'ヒューリスティック（深度2）',
+                        3: 'ヒューリスティック（深度4）',
+                        4: 'IDA v1（500ms）',
+                        5: 'IDA v1（5000ms）',
+                    };
+                    const levelName = cpuLevelNames[cpuInfo.level] || 'ヒューリスティック（深度4）';
                     opponentNameEl = Object.assign(document.createElement('span'), {
                         className: 'font-semibold',
                         textContent: `CPU (${levelName})`,
