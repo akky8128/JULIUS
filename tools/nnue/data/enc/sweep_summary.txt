@@ -1,0 +1,2 @@
+=== sweep start 11:27:27 data=tools/nnue/data/gen014_13.jsonl champ=gen092 ===
+--- gen096: seed=3 E=32 lr=1e-3 ep=100 start 11:27:27 ---
