@@ -105,6 +105,8 @@ export function createNetwork(weightsFloat32Array, meta) {
   const CELL_SLOT_DIM = 16;
   const Wenc = hasStackEncoder ? offsets.Wenc : null;
   const benc = hasStackEncoder ? offsets.benc : null;
+  const hasEncoderMaxPool = hasStackEncoder && !!meta.stackEncoder.maxPool;
+  const encContrib = hasStackEncoder ? (hasEncoderMaxPool ? E * 2 : E) : 0;
 
   // ── scalars を a1(L1)経路にも注入: meta.scalarInL1 が true の場合のみ有効化。
   const hasScalarInL1 = !!(meta.scalarInL1 && offsets.Ws1);
@@ -115,7 +117,7 @@ export function createNetwork(weightsFloat32Array, meta) {
   const hasNoFcPath = !!meta.noFcPath;
   const h1FcContrib = hasNoFcPath ? 0 : H1;
 
-  const h1Len = h1FcContrib + (hasStackEncoder ? E : 0) + scalarDim;
+  const h1Len = h1FcContrib + encContrib + scalarDim;
 
   // 作業用バッファ（呼び出しごとの再確保を避ける）
   const a1 = hasNoFcPath ? null : new Float64Array(H1);
@@ -126,6 +128,7 @@ export function createNetwork(weightsFloat32Array, meta) {
     ? new Float64Array(NUM_CELLS * CELL_SLOT_DIM)
     : null;
   const pooled = hasStackEncoder ? new Float64Array(E) : null;
+  const pooledMax = hasEncoderMaxPool ? new Float64Array(E) : null;
 
   /**
    * 線形出力（活性化なしの生スコア）を計算する。
@@ -170,8 +173,9 @@ export function createNetwork(weightsFloat32Array, meta) {
         perCell[cell * CELL_SLOT_DIM + slot] += 1;
       }
 
-      // 共有重み Wenc[E,16] / benc[E] を全セルに適用し、sum-pool する。
+      // 共有重み Wenc[E,16] / benc[E] を全セルに適用し、sum-pool（＋max-pool）する。
       pooled.fill(0);
+      if (hasEncoderMaxPool) pooledMax.fill(-Infinity);
       const wencBase = Wenc.offset;
       const bencBase = benc.offset;
       for (let cell = 0; cell < NUM_CELLS; cell++) {
@@ -182,16 +186,23 @@ export function createNetwork(weightsFloat32Array, meta) {
           for (let d = 0; d < CELL_SLOT_DIM; d++) {
             sum += weightsFloat32Array[rowBase + d] * perCell[cellBase + d];
           }
-          pooled[e] += clippedReLU(sum, clipMin, clipMax);
+          const activated = clippedReLU(sum, clipMin, clipMax);
+          pooled[e] += activated;
+          if (hasEncoderMaxPool && activated > pooledMax[e]) pooledMax[e] = activated;
         }
       }
 
       for (let e = 0; e < E; e++) {
         h1[h1FcContrib + e] = pooled[e];
       }
+      if (hasEncoderMaxPool) {
+        for (let e = 0; e < E; e++) {
+          h1[h1FcContrib + E + e] = pooledMax[e];
+        }
+      }
     }
 
-    const encOffset = hasStackEncoder ? E : 0;
+    const encOffset = hasStackEncoder ? encContrib : 0;
     for (let s = 0; s < scalarDim; s++) {
       h1[h1FcContrib + encOffset + s] = scalars[s];
     }

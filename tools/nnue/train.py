@@ -59,6 +59,10 @@ def parse_args():
     p.add_argument("--no-fc-path", action="store_true",
                    help="従来の全結合L1(a1)経路を削除し、スタックエンコーダのpooled出力のみで"
                         "h1を構成する(純エンコーダ版)。--stack-encoder-dim>0が必須。")
+    p.add_argument("--encoder-max-pool", action="store_true",
+                   help="per-cellエンコーダのpoolingをsum-poolのみからsum-pool+max-poolの"
+                        "concatに拡張する(encoder出力E次元がh1では2E次元になる)。"
+                        "--stack-encoder-dim>0が必須。Wenc/bencは共有のまま追加パラメータなし。")
     return p.parse_args()
 
 
@@ -167,7 +171,8 @@ class ClippedReLU:
     pass
 
 
-def build_model(feature_dim, scalar_dim, h1, h2, h3, stack_encoder_dim=0, scalar_in_l1=False, no_fc_path=False):
+def build_model(feature_dim, scalar_dim, h1, h2, h3, stack_encoder_dim=0, scalar_in_l1=False, no_fc_path=False,
+                 encoder_max_pool=False):
     """
     stack_encoder_dim > 0 の場合、共有重みの per-cell スタックエンコーダ
     (Linear(16 -> E) をセル毎に同じ重みで適用し、16セル分を sum-pool する)
@@ -193,13 +198,15 @@ def build_model(feature_dim, scalar_dim, h1, h2, h3, stack_encoder_dim=0, scalar
             self.scalar_in_l1 = scalar_in_l1
             self.no_fc_path = no_fc_path
             self.num_cells = num_cells
+            self.encoder_max_pool = encoder_max_pool
             if not no_fc_path:
                 self.l1 = nn.Linear(feature_dim, h1)
             if stack_encoder_dim > 0:
                 self.enc = nn.Linear(CELL_SLOT_DIM, stack_encoder_dim)
             if scalar_in_l1 and not no_fc_path:
                 self.ls1 = nn.Linear(scalar_dim, h1, bias=False)
-            l2_in = (0 if no_fc_path else h1) + stack_encoder_dim + scalar_dim
+            enc_contrib = stack_encoder_dim * (2 if (stack_encoder_dim > 0 and encoder_max_pool) else 1)
+            l2_in = (0 if no_fc_path else h1) + enc_contrib + scalar_dim
             self.l2 = nn.Linear(l2_in, h2)
             self.l3 = nn.Linear(h2, h3)
             self.l4 = nn.Linear(h3, 1)
@@ -216,8 +223,11 @@ def build_model(feature_dim, scalar_dim, h1, h2, h3, stack_encoder_dim=0, scalar
                 # x[:, :feature_dim] -> [B, num_cells, 16] (共有重み Wenc/benc を全セルに適用)
                 per_cell = x.view(x.shape[0], self.num_cells, CELL_SLOT_DIM)
                 e_cell = torch.clamp(self.enc(per_cell), 0.0, 1.0)  # [B, num_cells, E]
-                pooled = e_cell.sum(dim=1)  # sum-pool over cells -> [B, E]
-                parts.append(pooled)
+                pooled_sum = e_cell.sum(dim=1)  # sum-pool over cells -> [B, E]
+                parts.append(pooled_sum)
+                if self.encoder_max_pool:
+                    pooled_max = e_cell.max(dim=1).values  # max-pool over cells -> [B, E]
+                    parts.append(pooled_max)
             parts.append(s)
             h1_cat = torch.cat(parts, dim=1)
             a2 = torch.clamp(self.l2(h1_cat), 0.0, 1.0)
@@ -483,9 +493,13 @@ def main():
         print("ERROR: --no-fc-path には --stack-encoder-dim > 0 が必須です。", file=sys.stderr)
         sys.exit(1)
 
+    if args.encoder_max_pool and args.stack_encoder_dim <= 0:
+        print("ERROR: --encoder-max-pool には --stack-encoder-dim > 0 が必須です。", file=sys.stderr)
+        sys.exit(1)
+
     model = build_model(feature_dim, scalar_dim, args.hidden1, args.hidden2, args.hidden3,
                          stack_encoder_dim=args.stack_encoder_dim, scalar_in_l1=args.scalar_in_l1,
-                         no_fc_path=args.no_fc_path)
+                         no_fc_path=args.no_fc_path, encoder_max_pool=args.encoder_max_pool)
 
     model, best_val_loss, last_train_loss, best_epoch, epochs_run = train_model(
         model, device, x_dense, scalars, y, train_idx, val_idx, args
@@ -506,7 +520,8 @@ def main():
 
     CELL_SLOT_DIM = 16
     h1_contrib = 0 if args.no_fc_path else args.hidden1
-    h2_input_dim = h1_contrib + scalar_dim + (args.stack_encoder_dim if args.stack_encoder_dim > 0 else 0)
+    enc_contrib = args.stack_encoder_dim * (2 if (args.stack_encoder_dim > 0 and args.encoder_max_pool) else 1)
+    h2_input_dim = h1_contrib + scalar_dim + enc_contrib
 
     if args.no_fc_path:
         tensors = [
@@ -572,6 +587,8 @@ def main():
     }
     if args.stack_encoder_dim > 0:
         meta["stackEncoder"] = {"dim": args.stack_encoder_dim, "cellSlotDim": CELL_SLOT_DIM}
+        if args.encoder_max_pool:
+            meta["stackEncoder"]["maxPool"] = True
     if args.scalar_in_l1 and not args.no_fc_path:
         meta["scalarInL1"] = True
     if args.no_fc_path:
