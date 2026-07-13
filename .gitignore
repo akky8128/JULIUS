@@ -71,3 +71,32 @@ julius-online-a5984-default-rtdb-export.json
 
 # Local preview/dev tooling config
 .claude/
+
+# macOS
+.DS_Store
+
+# NNUE: 採用判定に落ちた実験モデル群(gen番号は探索のたびに大量発生する)。
+# チャンピオン(gen092/gen113系/gen137等)は明示的に git add 済みのため
+# 既に追跡中のファイルはこのパターンの影響を受けない。
+models/*.bin
+models/*.json
+models/*.golden.json
+!models/gen092.*
+!models/gen113.*
+!models/gen114.*
+!models/gen115.*
+!models/gen118.*
+!models/gen119.*
+!models/gen120.*
+!models/gen121.*
+!models/gen122.*
+!models/gen137.*
+
+# NNUE: 巨大な学習データ・自己対戦shard・再ラベル中間生成物
+# (詳細は .claude/NNUE_HANDOFF.md 参照。ソース/ツール/evidence txtのみコミット対象)
+tools/nnue/data/*.jsonl
+tools/nnue/data/sp*/
+tools/nnue/data/relabel/
+tools/nnue/data/enc/selfplay092/
+tools/nnue/data/feat2/STOP
+tools/nnue/data/feat2/train13.sh
