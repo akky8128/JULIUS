@@ -3,7 +3,7 @@
   "generation": 120,
   "boardSize": 4,
   "featureDim": 256,
-  "scalarDim": 4,
+  "scalarDim": 13,
   "maxDepth": 8,
   "hidden": [
     96,
@@ -37,7 +37,7 @@
       "name": "W2",
       "shape": [
         24,
-        100
+        125
       ]
     },
     {
@@ -71,19 +71,36 @@
       "shape": [
         1
       ]
+    },
+    {
+      "name": "Wenc",
+      "shape": [
+        16,
+        16
+      ]
+    },
+    {
+      "name": "benc",
+      "shape": [
+        16
+      ]
     }
   ],
   "train": {
-    "dataFile": "tools/nnue/data/gen009.jsonl",
-    "numRecords": 1660304,
-    "valLoss": 0.03504461050033569,
-    "trainLoss": 0.03353254387080945,
-    "epochsRun": 25,
-    "bestEpoch": 15,
-    "device": "mps",
-    "seed": 2,
+    "dataFile": "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/gen014_13.jsonl",
+    "numRecords": 3427296,
+    "valLoss": 0.03449128195643425,
+    "trainLoss": 0.033526401758603074,
+    "epochsRun": 34,
+    "bestEpoch": 24,
+    "device": "cpu",
+    "seed": 24,
     "splitBy": "pid",
-    "numTrainPositions": 167433,
-    "numValPositions": 18604
+    "numTrainPositions": 168430,
+    "numValPositions": 18714
+  },
+  "stackEncoder": {
+    "dim": 16,
+    "cellSlotDim": 16
   }
 }
