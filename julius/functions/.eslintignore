@@ -1,0 +1,5 @@
+# core/ は julius/scripts/sync-core.mjs が ../../core から生成するコピー(編集禁止)。
+# 正本はリポジトリ直下の core/ で、functions/ の house style(google, quotes, indent等)を強制する対象外とする。
+core/
+node_modules/
+*.local

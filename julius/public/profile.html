@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JuliUs. - ユーザープロフィール</title>
+    <meta name="description" content="JuliUs.のユーザープロフィールページです。">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192x192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+    <link rel="shortcut icon" href="favicon.ico">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="JuliUs.">
+    <meta property="og:title" content="JuliUs. - ユーザープロフィール">
+    <meta property="og:description" content="JuliUs.のユーザープロフィールページです。">
+    <meta property="og:url" content="https://julius-online-a5984.web.app/profile.html">
+    <meta property="og:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="JuliUs. - ユーザープロフィール">
+    <meta name="twitter:description" content="JuliUs.のユーザープロフィールページです。">
+    <meta name="twitter:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- ヘッダーの読み込み場所 -->
+    <div id="header-placeholder"></div>
+
+    <!-- メインコンテンツ -->
+    <main class="container mx-auto px-6 py-12">
+
+        <!-- ローディング表示 -->
+        <div id="loading-container" class="text-center py-20">
+            <p class="text-xl text-gray-600">ユーザー情報を読み込んでいます...</p>
+        </div>
+
+        <!-- 未ログイン時 コンテンツ -->
+        <div id="login-container" class="hidden max-w-md mx-auto bg-white p-8 rounded-lg shadow-lg text-center">
+            <h2 class="text-3xl font-bold text-gray-900 mb-4">JuliUsへようこそ</h2>
+            <p class="text-gray-600 mb-8">サービスを利用するには、Googleアカウントでログインしてください。</p>
+            <button id="login-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition flex items-center justify-center">
+                <i class="fab fa-google mr-3"></i>
+                Googleでログイン
+            </button>
+        </div>
+        
+        <!-- プロフィール表示/編集 コンテンツ -->
+        <div id="profile-container" class="hidden max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg">
+            <!-- 表示モード -->
+            <div id="profile-display-mode">
+
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="nickname-display" class="text-2xl font-bold text-gray-900 truncate"></h2>
+                    <div class="flex items-center space-x-2 flex-shrink-0">
+                         <div id="follow-button-container"></div>
+                         <button id="edit-profile-button" class="hidden bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-1 px-3 rounded-md text-sm transition">プロフィールを編集</button>
+                    </div>
+                </div>
+
+                <div class="flex border-t border-b py-3 mb-4 text-center">
+                    <div class="w-1/3">
+                        <span id="games-played-count" class="font-bold text-lg">0</span>
+                        <span class="text-gray-600 block text-sm">局</span>
+                    </div>
+                    <div id="following-btn" class="w-1/3 cursor-pointer hover:bg-gray-50 rounded-md py-1">
+                        <span id="following-count" class="font-bold text-lg">0</span>
+                        <span class="text-gray-600 block text-sm">フォロー中</span>
+                    </div>
+                    <div id="followers-btn" class="w-1/3 cursor-pointer hover:bg-gray-50 rounded-md py-1">
+                        <span id="followers-count" class="font-bold text-lg">0</span>
+                        <span class="text-gray-600 block text-sm">フォロワー</span>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <p id="bio-display" class="text-base whitespace-pre-wrap"></p>
+                </div>
+            </div>
+
+            <!-- 編集モード -->
+            <form id="profile-edit-mode" class="hidden">
+                 <div class="space-y-6">
+                    <div>
+                        <label for="nickname-input" class="block text-lg font-semibold text-gray-700">ニックネーム</label>
+                        <input type="text" id="nickname-input" name="nickname" required class="mt-2 p-3 w-full border rounded-md" maxlength="50">
+                    </div>
+                     <div>
+                        <label for="bio-input" class="block text-lg font-semibold text-gray-700">自己紹介</label>
+                        <textarea id="bio-input" name="bio" rows="4" class="mt-2 p-3 w-full border rounded-md" maxlength="300"></textarea>
+                    </div>
+                </div>
+                <div class="mt-8 flex gap-4">
+                    <button type="button" id="cancel-edit-button" class="w-1/2 bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-lg text-lg transition">
+                        キャンセル
+                    </button>
+                    <button type="submit" id="save-profile-button" class="w-1/2 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition">
+                        保存
+                    </button>
+                </div>
+                <p id="save-feedback" class="text-green-600 h-6 mt-4 text-center"></p>
+            </form>
+        </div>
+
+        <div id="history-container" class="mt-12 hidden">
+                <h3 class="text-2xl font-bold text-gray-800 border-b pb-2 mb-4">対局</h3>
+                <ul id="history-list" class="space-y-3">
+                    </ul>
+                <p id="history-loading" class="text-gray-500">履歴を読み込んでいます...</p>
+            </div>
+
+            <div id="pagination-controls" class="mt-6 flex justify-center items-center space-x-4 hidden">
+                    <button id="prev-page-btn" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 disabled:opacity-50" disabled>
+                        <i class="fas fa-arrow-left"></i> 前へ
+                    </button>
+                    <span id="page-info" class="font-semibold text-gray-700"></span>
+                    <button id="next-page-btn" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 disabled:opacity-50" disabled>
+                        次へ <i class="fas fa-arrow-right"></i>
+                    </button>
+            </div>
+
+        </div>
+
+        <div id="follow-list-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center">
+                    <h3 id="modal-title" class="text-xl font-bold"></h3>
+                    <button id="modal-close-button" class="text-3xl font-light leading-none text-gray-500 hover:text-gray-800">&times;</button>
+                </div>
+                <div id="modal-user-list" class="p-4 max-h-[60vh] overflow-y-auto">
+                    </div>
+            </div>
+        </div>
+    </main>
+     
+    <!-- フッター -->
+    <div id="footer-placeholder"></div>
+
+    <script type="module">
+        import { loadHeader } from './js/header.js';
+        import { loadFooter } from './js/footer.js';
+        import { auth, database, functions } from './js/firebase.js';
+        import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { ref, get, query, orderByValue, limitToLast } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+        const toggleFollowFn = httpsCallable(functions, 'toggleFollow');
+        const updateProfileFn = httpsCallable(functions, 'updateProfile');
+
+        loadHeader();
+        loadFooter();
+
+        const provider = new GoogleAuthProvider();
+
+        let currentPage = 1;
+        const gamesPerPage = 10;
+        
+        let allGameIds = []; // 全てのゲームIDとタイムスタンプを保持する配列
+
+        const dom = {
+            loadingContainer: document.getElementById('loading-container'),
+            loginContainer: document.getElementById('login-container'),
+            profileContainer: document.getElementById('profile-container'),
+            loginButton: document.getElementById('login-button'),
+            displayMode: document.getElementById('profile-display-mode'),
+            nicknameDisplay: document.getElementById('nickname-display'),
+            bioDisplay: document.getElementById('bio-display'),
+            editProfileButton: document.getElementById('edit-profile-button'),
+            editMode: document.getElementById('profile-edit-mode'),
+            nicknameInput: document.getElementById('nickname-input'),
+            bioInput: document.getElementById('bio-input'),
+            saveProfileButton: document.getElementById('save-profile-button'),
+            cancelEditButton: document.getElementById('cancel-edit-button'),
+            saveFeedback: document.getElementById('save-feedback'),
+        };
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const viewedUid = urlParams.get('uid');
+
+        async function fetchUserProfile(uid) {
+            const userRef = ref(database, `users/${uid}/profile`);
+            const snapshot = await get(userRef);
+            return snapshot.exists() ? snapshot.val() : null;
+        }
+
+        function renderProfile(profileData, isOwnProfile) {
+            dom.nicknameDisplay.textContent = profileData?.nickname || 'ニックネーム未設定';
+            dom.bioDisplay.textContent = profileData?.bio || '自己紹介がありません。';
+            document.getElementById('games-played-count').textContent = profileData?.gamesPlayed || 0;
+            document.getElementById('following-count').textContent = profileData?.followingCount || 0;
+            document.getElementById('followers-count').textContent = profileData?.followersCount || 0;
+            dom.loadingContainer.classList.add('hidden');
+            dom.profileContainer.classList.remove('hidden');
+            if (isOwnProfile) {
+                dom.editProfileButton.classList.remove('hidden');
+                dom.nicknameInput.value = profileData?.nickname || '';
+                dom.bioInput.value = profileData?.bio || '';
+            }
+        }
+
+        onAuthStateChanged(auth, async (user) => {
+            const historyContainer = document.getElementById('history-container');
+            // ▼▼▼【変更点3】ヘッダー関連の処理をここから削除 ▼▼▼
+            // const headerPlaceholder = ... などのコードは不要になります
+            
+            // --- ページ本体のレンダリング（ここは変更なし） ---
+            if (!viewedUid) {
+                if (user) {
+                    window.location.replace(`profile.html?uid=${user.uid}`);
+                } else {
+                    dom.loadingContainer.classList.add('hidden');
+                    dom.loginContainer.classList.remove('hidden');
+                }
+            } else {
+                const isOwnProfile = user && user.uid === viewedUid;
+                const profileData = await fetchUserProfile(viewedUid);
+                if (profileData || isOwnProfile) {
+                    renderProfile(profileData, isOwnProfile);
+                } else {
+                    dom.loadingContainer.textContent = 'ユーザーが見つかりません。';
+                }
+            }
+
+            // フォローボタンの表示を処理
+            if (viewedUid) {
+                handleFollowButton(viewedUid, user);
+            }
+            
+            // 対戦履歴の表示
+            if (viewedUid && user) {
+                // ログインしていて、プロフィールが表示されている場合
+                historyContainer.classList.remove('hidden'); // 表示する
+                initializeGameHistory(viewedUid, user.uid); // 新しい初期化関数を呼び出す
+            } else {
+                // 未ログイン、またはプロフィールが表示されていない場合
+                historyContainer.classList.add('hidden'); // 非表示にする
+            }
+        });
+
+        // 1. 全てのゲームIDとタイムスタンプを取得し、ページネーションを初期化する関数
+        async function initializeGameHistory(viewedUid, currentUid) {
+            const userGamesRef = ref(database, `users/${viewedUid}/games`);
+            const gamesQuery = query(userGamesRef, orderByValue());
+            const historyLoading = document.getElementById('history-loading');
+            
+            try {
+                const snapshot = await get(gamesQuery);
+                if (!snapshot.exists()) {
+                    historyLoading.textContent = '対局はありません。';
+                    return;
+                }
+
+                // IDとタイムスタンプのリストを作成
+                const ids = [];
+                snapshot.forEach(childSnapshot => {
+                    ids.push({
+                        id: childSnapshot.key,
+                        timestamp: childSnapshot.val()
+                    });
+                });
+                
+                // 新しい順にソートしてグローバル変数に保存
+                allGameIds = ids.sort((a, b) => b.timestamp - a.timestamp);
+
+                // 最初のページを表示
+                await displayGameHistoryPage(1, currentUid);
+
+                // ページネーションボタンにイベントリスナーを設定 (一度だけ設定)
+                const prevButton = document.getElementById('prev-page-btn');
+                const nextButton = document.getElementById('next-page-btn');
+
+                prevButton.onclick = () => {
+                    if (currentPage > 1) {
+                        displayGameHistoryPage(currentPage - 1, currentUid);
+                    }
+                };
+                nextButton.onclick = () => {
+                    const totalPages = Math.ceil(allGameIds.length / gamesPerPage);
+                    if (currentPage < totalPages) {
+                        displayGameHistoryPage(currentPage + 1, currentUid);
+                    }
+                };
+
+            } catch (error) {
+                console.error("Failed to initialize game history:", error);
+                historyLoading.textContent = '履歴の読み込みに失敗しました。';
+            }
+        }
+
+        // 2. 指定されたページの対局詳細データを取得して表示する関数
+        async function displayGameHistoryPage(page, currentUid) {
+            currentPage = page;
+            const historyList = document.getElementById('history-list');
+            const historyLoading = document.getElementById('history-loading');
+            
+            historyList.innerHTML = ''; // リストをクリア
+            historyLoading.classList.remove('hidden');
+            historyLoading.textContent = '履歴を読み込んでいます...';
+            updatePaginationControls(); // ボタンを先に更新して無効化しておく
+
+            const startIndex = (page - 1) * gamesPerPage;
+            const endIndex = startIndex + gamesPerPage;
+            const gameIdsToShow = allGameIds.slice(startIndex, endIndex);
+
+            if (gameIdsToShow.length === 0) {
+                 historyLoading.textContent = '対局はありません。';
+                 return;
+            }
+            
+            // ページに必要な10件のゲームのmetaのみを取得（帯域幅削減のため /meta サブパスのみ参照）
+            const gamePromises = gameIdsToShow.map(gameInfo =>
+                get(ref(database, `games/${gameInfo.id}/meta`)).then(metaSnap => ({
+                    id: gameInfo.id,
+                    meta: metaSnap.val(),
+                    timestamp: gameInfo.timestamp
+                }))
+            );
+
+            const gamesToShow = await Promise.all(gamePromises);
+
+            for (const game of gamesToShow) {
+                 if (!game.meta) continue; // metaが取得できなかった場合はスキップ
+
+                const meta = game.meta;
+                const players = meta.players;
+                const viewedUid = urlParams.get('uid');
+
+                const isParticipant = currentUid && (players.white === currentUid || players.black === currentUid);
+                const isInProgress = meta.status === 'in_progress';
+
+                let linkUrl = `game.html?id=${game.id}&mode=spectate`;
+                let linkText = '対局を見る';
+                let resultText = '不明';
+                let resultColor = 'text-gray-500';
+
+                // Bug3修正: CPU対局の検出（gameSettings.cpu が存在する場合はCPU対局）
+                const cpuInfo = meta.gameSettings?.cpu;
+
+                if (cpuInfo) {
+                    // CPU対局: 本人（=対局の所有者）は mode=cpu で開く（自動着手・操作可）。
+                    // 他人のプロフィールから見る場合は参加者ではないため mode=spectate で観戦する。
+                    if (isParticipant) {
+                        linkUrl = `game.html?id=${game.id}&mode=cpu`;
+                        linkText = isInProgress ? '対局に戻る' : '対局を見る';
+                    } else {
+                        linkUrl = `game.html?id=${game.id}&mode=spectate`;
+                        linkText = '観戦する';
+                    }
+                } else if (isParticipant && isInProgress) {
+                    linkUrl = `game.html?id=${game.id}&mode=play`;
+                    linkText = '対局に戻る';
+                }
+
+                if (cpuInfo) {
+                    // CPU対局: 勝敗はプレイヤーの色（=CPUの色の逆）と winner を比較して判定
+                    const humanColor = cpuInfo.color === 'white' ? 'black' : 'white';
+                    if (meta.winner) {
+                        if (meta.winner === humanColor) {
+                            resultText = '勝利'; resultColor = 'text-green-600 font-bold';
+                        } else {
+                            resultText = '敗北'; resultColor = 'text-red-600 font-bold';
+                        }
+                    } else if (meta.status === 'in_progress') {
+                        resultText = '対戦中'; resultColor = 'text-blue-500';
+                    } else {
+                        resultText = '引き分け等';
+                    }
+                } else {
+                    if (meta.winner) {
+                        if ((meta.winner === 'white' && players.white === viewedUid) || (meta.winner === 'black' && players.black === viewedUid)) {
+                            resultText = '勝利'; resultColor = 'text-green-600 font-bold';
+                        } else {
+                            resultText = '敗北'; resultColor = 'text-red-600 font-bold';
+                        }
+                    } else if (meta.status === 'in_progress') {
+                        resultText = '対戦中'; resultColor = 'text-blue-500';
+                    } else {
+                        resultText = '引き分け等';
+                    }
+                }
+
+                const date = new Date(game.timestamp).toLocaleString('ja-JP');
+                // CPU対局では対戦相手のプロフィールをFirebaseから取得しない
+                const opponentUid = cpuInfo ? null : (players.white === viewedUid ? players.black : players.white);
+                const opponentProfile = opponentUid ? await fetchUserProfile(opponentUid) : { nickname: 'オフライン' };
+
+                const listItem = document.createElement('li');
+                listItem.className = 'p-3 bg-gray-50 rounded-md border flex justify-between items-center';
+                listItem.innerHTML = `
+                    <div>
+                        <p class="text-sm text-gray-500">${date}</p>
+                        <p class="vs-line">vs </p>
+                    </div>
+                    <div class="text-right">
+                        <p class="${resultColor}">${resultText}</p>
+                        <a href="${linkUrl}" class="text-sm text-blue-600 hover:underline">${linkText}</a>
+                    </div>
+                `;
+
+                // 対戦相手名（ユーザー入力を含む）はtextContentで安全に挿入する
+                // Bug3修正: CPU対局では「CPU (よわい/ふつう/つよい)」をリンクなしspanで表示
+                let opponentNameEl;
+                if (cpuInfo) {
+                    const cpuLevelNames = {
+                        1: 'ランダム',
+                        2: 'ヒューリスティック（深度2）',
+                        3: 'ヒューリスティック（深度4）',
+                        4: 'IDA v1（500ms）',
+                        5: 'IDA v1（5000ms）',
+                    };
+                    const levelName = cpuLevelNames[cpuInfo.level] || 'ヒューリスティック（深度4）';
+                    opponentNameEl = Object.assign(document.createElement('span'), {
+                        className: 'font-semibold',
+                        textContent: `CPU (${levelName})`,
+                    });
+                } else if (opponentUid && opponentUid !== 'offline') {
+                    opponentNameEl = Object.assign(document.createElement('a'), {
+                        href: `profile.html?uid=${encodeURIComponent(opponentUid)}`,
+                        className: 'font-semibold text-blue-600 hover:underline',
+                        textContent: opponentProfile?.nickname || 'ゲスト',
+                    });
+                } else {
+                    opponentNameEl = Object.assign(document.createElement('span'), {
+                        className: 'font-semibold',
+                        textContent: opponentProfile?.nickname || 'オフライン',
+                    });
+                }
+                listItem.querySelector('.vs-line').appendChild(opponentNameEl);
+
+                historyList.appendChild(listItem);
+            }
+            
+            historyLoading.classList.add('hidden');
+            updatePaginationControls(); // 表示完了後にボタンの状態を再度更新
+        }
+
+        // 3. ページネーションUIの状態を更新する関数
+        function updatePaginationControls() {
+            const totalGames = allGameIds.length;
+            const totalPages = Math.ceil(totalGames / gamesPerPage);
+            
+            const controls = document.getElementById('pagination-controls');
+            if (totalPages <= 1) {
+                controls.classList.add('hidden');
+                return;
+            }
+            controls.classList.remove('hidden');
+
+            document.getElementById('page-info').textContent = `ページ ${currentPage} / ${totalPages}`;
+            document.getElementById('prev-page-btn').disabled = currentPage === 1;
+            document.getElementById('next-page-btn').disabled = currentPage === totalPages;
+        }
+
+        async function handleFollowButton(viewedUid, currentUser) {
+            const container = document.getElementById('follow-button-container');
+            container.innerHTML = ''; // コンテナを初期化
+
+            // 自分のプロフィール、または未ログインの場合はボタンを表示しない
+            if (!currentUser || currentUser.uid === viewedUid) {
+                return;
+            }
+
+            // 自分が相手をフォローしているか確認
+            const followingRef = ref(database, `users/${currentUser.uid}/following/${viewedUid}`);
+            const snapshot = await get(followingRef);
+            const isFollowing = snapshot.exists();
+
+            // ボタンを作成
+            const followButton = document.createElement('button');
+            followButton.className = 'font-bold py-2 px-4 rounded-lg text-sm transition';
+            
+            if (isFollowing) {
+                followButton.textContent = 'フォロー解除';
+                followButton.classList.add('bg-gray-200', 'hover:bg-gray-300', 'text-gray-800');
+            } else {
+                followButton.textContent = 'フォローする';
+                followButton.classList.add('bg-blue-600', 'hover:bg-blue-700', 'text-white');
+            }
+            
+            container.appendChild(followButton);
+
+            // ボタンクリック時の処理
+            followButton.addEventListener('click', async () => {
+                followButton.disabled = true; // 連打防止
+                try {
+                    await toggleFollowFn({targetUid: viewedUid});
+                    // 成功したらページを再読み込みして表示を更新
+                    window.location.reload();
+                } catch (error) {
+                    console.error("Follow/Unfollow failed:", error);
+                    alert('処理に失敗しました。');
+                    followButton.disabled = false;
+                }
+            });
+        }
+
+        // --- イベントリスナー ---
+        document.getElementById('following-btn').addEventListener('click', () => {
+            showFollowList(viewedUid, 'following');
+        });
+
+        document.getElementById('followers-btn').addEventListener('click', () => {
+            showFollowList(viewedUid, 'followers');
+        });
+
+        document.getElementById('modal-close-button').addEventListener('click', closeModal);
+        document.getElementById('follow-list-modal').addEventListener('click', (e) => {
+            // 背景クリックで閉じる
+            if (e.target.id === 'follow-list-modal') {
+                closeModal();
+            }
+        });
+
+        dom.loginButton.addEventListener('click', () => {
+            signInWithPopup(auth, provider).catch(console.error);
+        });
+
+        dom.editProfileButton.addEventListener('click', () => {
+            dom.displayMode.classList.add('hidden');
+            dom.editMode.classList.remove('hidden');
+        });
+
+        dom.cancelEditButton.addEventListener('click', () => {
+            dom.editMode.classList.add('hidden');
+            dom.displayMode.classList.remove('hidden');
+            dom.saveFeedback.textContent = '';
+        });
+
+        dom.editMode.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const user = auth.currentUser;
+            if (!user) return;
+
+            const newProfile = {
+                nickname: dom.nicknameInput.value.trim(),
+                bio: dom.bioInput.value.trim()
+            };
+
+            dom.saveProfileButton.disabled = true;
+            try {
+                await updateProfileFn(newProfile);
+                dom.saveFeedback.textContent = '保存しました！';
+                // Bug5修正: ヘッダーのニックネーム表示を即時更新するためイベントを発火する
+                window.dispatchEvent(new CustomEvent('julius:profile-updated'));
+
+                // 表示を更新
+                dom.nicknameDisplay.textContent = newProfile.nickname || 'ニックネーム未設定';
+                dom.bioDisplay.textContent = newProfile.bio || '自己紹介がありません。';
+
+                setTimeout(() => {
+                    dom.editMode.classList.add('hidden');
+                    dom.displayMode.classList.remove('hidden');
+                    dom.saveFeedback.textContent = '';
+                    dom.saveProfileButton.disabled = false;
+                }, 1500);
+
+            } catch (error) {
+                console.error("Profile save failed:", error);
+                dom.saveFeedback.textContent = '保存に失敗しました。';
+                dom.saveProfileButton.disabled = false;
+            }
+        });
+
+        const modal = document.getElementById('follow-list-modal');
+        
+        function openModal() {
+            modal.classList.remove('hidden');
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+        }
+
+        async function showFollowList(uid, type) {
+            const title = document.getElementById('modal-title');
+            const userListContainer = document.getElementById('modal-user-list');
+            const currentUser = auth.currentUser;
+
+            title.textContent = type === 'following' ? 'フォロー中' : 'フォロワー';
+            userListContainer.innerHTML = '<p class="text-gray-500">読み込んでいます...</p>';
+            openModal();
+
+            try {
+                const listRef = ref(database, `users/${uid}/${type}`);
+                const listSnapshot = await get(listRef);
+
+                if (!listSnapshot.exists()) {
+                    userListContainer.innerHTML = '<p class="text-gray-500">ユーザーがいません。</p>';
+                    return;
+                }
+
+                const userIds = Object.keys(listSnapshot.val());
+                userListContainer.innerHTML = ''; // コンテナをクリア
+
+                // 各ユーザーの情報を取得
+                for (const userId of userIds) {
+                    const profile = await fetchUserProfile(userId);
+                    const userDiv = document.createElement('div');
+                    userDiv.className = 'py-2 flex justify-between items-center';
+                    
+                    const nickname = profile?.nickname || 'ゲスト';
+                    let followButtonHtml = '';
+
+                    // 自分以外のユーザーにフォローボタンを表示
+                    if (currentUser && currentUser.uid !== userId) {
+                        const followingRef = ref(database, `users/${currentUser.uid}/following/${userId}`);
+                        const isFollowing = (await get(followingRef)).exists();
+                        
+                        followButtonHtml = `
+                            <button class="js-modal-follow-btn font-bold py-1 px-3 rounded-lg text-sm transition ${isFollowing ? 'bg-gray-200 hover:bg-gray-300 text-gray-800' : 'bg-blue-600 hover:bg-blue-700 text-white'}" data-uid="${userId}">
+                                ${isFollowing ? 'フォロー解除' : 'フォローする'}
+                            </button>
+                        `;
+                    }
+
+                    userDiv.innerHTML = `
+                        <a href="profile.html?uid=${encodeURIComponent(userId)}" class="font-semibold text-blue-600 hover:underline"></a>
+                        <div>${followButtonHtml}</div>
+                    `;
+                    // ニックネーム（ユーザー入力）はtextContentで安全に挿入する
+                    userDiv.querySelector('a').textContent = nickname;
+                    userListContainer.appendChild(userDiv);
+                }
+
+                // モーダル内のフォローボタンにイベントを設定
+                document.querySelectorAll('.js-modal-follow-btn').forEach(btn => {
+                    btn.addEventListener('click', handleModalFollowClick);
+                });
+
+            } catch (error) {
+                console.error("Failed to load follow list:", error);
+                userListContainer.innerHTML = '<p class="text-red-500">リストの読み込みに失敗しました。</p>';
+            }
+        }
+
+        // モーダル内のフォロー/アンフォロー処理
+        async function handleModalFollowClick(event) {
+            const button = event.currentTarget;
+            const targetUid = button.dataset.uid;
+            const currentUser = auth.currentUser;
+
+            if (!currentUser || !targetUid) return;
+
+            button.disabled = true;
+
+            try {
+                const result = await toggleFollowFn({targetUid});
+                const isNowFollowing = result.data.following;
+                // ボタンの表示をサーバーが確定させた状態で更新
+                button.textContent = isNowFollowing ? 'フォロー解除' : 'フォローする';
+                button.classList.toggle('bg-gray-200');
+                button.classList.toggle('hover:bg-gray-300');
+                button.classList.toggle('text-gray-800');
+                button.classList.toggle('bg-blue-600');
+                button.classList.toggle('hover:bg-blue-700');
+                button.classList.toggle('text-white');
+                // ページ全体のカウンターも更新（ページを再読み込みしたくないため）
+                if (viewedUid === currentUser.uid || viewedUid === targetUid) {
+                    const profile = await fetchUserProfile(viewedUid);
+                    renderProfile(profile, currentUser && currentUser.uid === viewedUid);
+                }
+            } catch (error) {
+                console.error("Follow/Unfollow failed:", error);
+                alert('処理に失敗しました。');
+            } finally {
+                button.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JuliUs. - 対局を作成</title>
+    <meta name="description" content="JuliUs.で新しい対局を作成しましょう。">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192x192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+    <link rel="shortcut icon" href="favicon.ico">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="JuliUs.">
+    <meta property="og:title" content="JuliUs. - 対局を作成">
+    <meta property="og:description" content="JuliUs.で新しい対局を作成しましょう。">
+    <meta property="og:url" content="https://julius-online-a5984.web.app/create.html">
+    <meta property="og:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="JuliUs. - 対局を作成">
+    <meta name="twitter:description" content="JuliUs.で新しい対局を作成しましょう。">
+    <meta name="twitter:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+        }
+        /* Simple toggle switch style */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #4ade80;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #4ade80;
+        }
+        input[name="gameType"]:disabled + span,
+        label:has(input[name="gameType"]:disabled) {
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- ヘッダーの読み込み場所 -->
+    <div id="header-placeholder"></div>
+
+    <!-- メインコンテンツ -->
+    <main class="container mx-auto px-6 py-12">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-8">対局を作成</h2>
+
+        <div class="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg">
+            <form id="create-game-form">
+                <div class="space-y-6">
+
+                    <!-- 対戦形式 -->
+                    <div>
+                        <label class="block text-lg font-semibold text-gray-700">対戦形式</label>
+                        <div class="mt-2 flex flex-wrap gap-4">
+                            <label><input type="radio" name="gameType" value="online" id="game-type-online" class="mr-2">オンライン</label>
+                            <label><input type="radio" name="gameType" value="offline" id="game-type-offline" class="mr-2">オフライン</label>
+                            <label><input type="radio" name="gameType" value="cpu" id="game-type-cpu" checked class="mr-2">CPU対戦</label>
+                        </div>
+                        <p id="online-locked-message" class="hidden mt-2 text-sm text-black">
+                            オンライン対戦は、ログインとニックネームの設定が完了すると使用可能になります。
+                        </p>
+                    </div>
+
+                    <!-- CPUの強さ -->
+                    <div id="cpu-level-section">
+                        <label for="cpu-level-slider" class="block text-lg font-semibold text-gray-700">CPUの強さ</label>
+                        <div class="mt-2">
+                            <input type="range" id="cpu-level-slider" name="cpuLevel" min="1" max="5" step="1" value="3" class="w-full">
+                            <div class="mt-2 flex justify-between text-xs text-gray-500">
+                                <span>よわい</span>
+                                <span>つよい</span>
+                            </div>
+                            <p id="cpu-level-label" class="mt-2 text-center font-semibold text-gray-800"></p>
+                            <p id="cpu-level-description" class="mt-1 text-center text-sm text-gray-500"></p>
+                        </div>
+                    </div>
+
+                    <!-- ボード設定 -->
+                    <div>
+                        <label for="board-size" class="block text-lg font-semibold text-gray-700">ボードの大きさ</label>
+                        <input type="number" id="board-size" name="boardSize" value="4" min="3" max="8" class="mt-2 p-2 w-full border rounded-md">
+                    </div>
+
+                    <!-- 時間設定 -->
+                    <div>
+                        <label class="block text-lg font-semibold text-gray-700 mb-2">時間設定</label>
+                        <div class="flex items-center">
+                            <span class="mr-3 text-gray-900">持ち時間システム</span>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="time-control-enabled" id="time-control-toggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" checked/>
+                                <label for="time-control-toggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <div id="time-settings-panel" class="mt-4 space-y-4">
+                            <div>
+                                <label for="time-limit" class="block text-sm font-medium text-gray-700">持ち時間 (分)</label>
+                                <input type="number" id="time-limit" name="timeLimit" value="5" min="1" class="mt-1 p-2 w-full border rounded-md">
+                            </div>
+                            <div>
+                                <label for="delay" class="block text-sm font-medium text-gray-700">ディレイ (秒)</label>
+                                <input type="number" id="delay" name="delay" value="10" min="0" class="mt-1 p-2 w-full border rounded-md">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 手番設定 -->
+                    <div id="player-color-section">
+                         <label class="block text-lg font-semibold text-gray-700">あなたの手番</label>
+                        <div class="mt-2 flex space-x-4">
+                            <label><input type="radio" name="playerColor" value="random" checked class="mr-2">ランダム</label>
+                            <label><input type="radio" name="playerColor" value="white" class="mr-2">先手(白)</label>
+                            <label><input type="radio" name="playerColor" value="black" class="mr-2">後手(黒)</label>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- 作成ボタン -->
+                <div class="mt-8 border-t pt-6">
+                    <!-- 対局を作成ボタン -->
+                    <button type="submit" id="create-game-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition flex items-center justify-center">
+                        <span id="button-text">対局を作成</span>
+                        <svg id="button-spinner" class="animate-spin ml-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+     <!-- フッター -->
+    <div id="footer-placeholder"></div>
+
+    <script type="module">
+        import { loadHeader } from './js/header.js';
+        import { loadFooter } from './js/footer.js';
+        loadHeader();
+        loadFooter();
+
+        import { auth, database, functions } from './js/firebase.js';
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { ref, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+        const timeControlToggle = document.getElementById('time-control-toggle');
+        const timeSettingsPanel = document.getElementById('time-settings-panel');
+        const form = document.getElementById('create-game-form');
+
+        // CPUの強さスライダー: 1(最弱)〜5(最強)。
+        // game.html 側の CPU_LEVEL_CONFIG と対応させること。
+        const CPU_LEVELS = {
+            1: { label: 'ランダム', description: '合法手からランダムに選択（即勝ちがあれば選ぶ）' },
+            2: { label: 'ヒューリスティック（深度2）', description: '2手先まで読む探索' },
+            3: { label: 'ヒューリスティック（深度4）', description: '4手先まで読む探索' },
+            4: { label: 'IDA v1（500ms）', description: 'NNUE評価によるサーバー側探索・短時間版' },
+            5: { label: 'IDA v1（5000ms）', description: 'NNUE評価によるサーバー側探索・じっくり版' },
+        };
+        const cpuLevelSlider = document.getElementById('cpu-level-slider');
+        const cpuLevelLabel = document.getElementById('cpu-level-label');
+        const cpuLevelDescription = document.getElementById('cpu-level-description');
+
+        function updateCpuLevelLabel() {
+            const info = CPU_LEVELS[cpuLevelSlider.value] || CPU_LEVELS[3];
+            cpuLevelLabel.textContent = info.label;
+            cpuLevelDescription.textContent = info.description;
+        }
+        cpuLevelSlider.addEventListener('input', updateCpuLevelLabel);
+        updateCpuLevelLabel();
+
+        // Toggle visibility of time settings
+        timeControlToggle.addEventListener('change', () => {
+            timeSettingsPanel.classList.toggle('hidden', !timeControlToggle.checked);
+        });
+
+        const createButton = document.getElementById('create-game-button');
+        const buttonText = document.getElementById('button-text');
+        const buttonSpinner = document.getElementById('button-spinner');
+
+        const onlineRadio = document.getElementById('game-type-online');
+        const offlineRadio = document.getElementById('game-type-offline');
+        const cpuRadio = document.getElementById('game-type-cpu');
+        const onlineLockedMessage = document.getElementById('online-locked-message');
+        const cpuLevelSection = document.getElementById('cpu-level-section');
+        const playerColorSection = document.getElementById('player-color-section');
+
+        let currentUser = null;
+        let canUseOnline = false;
+
+        function updateSectionVisibility() {
+            const gameType = form.querySelector('input[name="gameType"]:checked')?.value;
+            cpuLevelSection.classList.toggle('hidden', gameType !== 'cpu');
+            playerColorSection.classList.toggle('hidden', gameType === 'offline');
+        }
+
+        document.querySelectorAll('input[name="gameType"]').forEach(radio => {
+            radio.addEventListener('change', updateSectionVisibility);
+        });
+        updateSectionVisibility();
+
+        onAuthStateChanged(auth, async (user) => {
+            currentUser = user;
+            canUseOnline = false;
+
+            if (user) {
+                const nicknameSnap = await get(ref(database, `users/${user.uid}/profile/nickname`));
+                canUseOnline = nicknameSnap.exists() && !!nicknameSnap.val();
+            }
+
+            onlineRadio.disabled = !canUseOnline;
+            onlineLockedMessage.classList.toggle('hidden', canUseOnline);
+
+            // オンラインが選択された状態で使用不可になった場合はCPU対戦へフォールバック
+            if (!canUseOnline && onlineRadio.checked) {
+                cpuRadio.checked = true;
+                updateSectionVisibility();
+            }
+
+            createButton.disabled = false;
+        });
+
+        const createGame = httpsCallable(functions, 'createGame');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(form);
+            const settings = Object.fromEntries(formData.entries());
+
+            if (settings.gameType === 'online' && !canUseOnline) {
+                alert('オンライン対戦を利用するには、ログインとニックネームの設定が必要です。');
+                return;
+            }
+
+            createButton.disabled = true;
+            buttonText.textContent = '作成中...';
+            buttonSpinner.classList.remove('hidden');
+
+            try {
+                const isPersisted = canUseOnline && (settings.gameType === 'online' || settings.gameType === 'offline' || settings.gameType === 'cpu');
+
+                if (isPersisted) {
+                    // ログイン・ニックネーム設定済み：サーバーに対局を作成し、保存される対局として遷移する
+                    const result = await createGame(settings);
+                    const gameId = result.data.gameId;
+
+                    if (settings.gameType === 'online') {
+                        window.location.href = `waiting.html?id=${gameId}`;
+                    } else if (settings.gameType === 'cpu') {
+                        window.location.href = `game.html?id=${gameId}&mode=cpu`;
+                    } else {
+                        window.location.href = `game.html?id=${gameId}&mode=play`;
+                    }
+                } else {
+                    // 未ログイン・ニックネーム未設定：保存されないローカル対局としてブラウザ内だけで開始する
+                    const params = new URLSearchParams();
+                    params.set('size', settings.boardSize);
+                    params.set('timeEnabled', settings['time-control-enabled'] === 'on' ? '1' : '0');
+                    if (settings['time-control-enabled'] === 'on') {
+                        params.set('timeLimit', settings.timeLimit);
+                        params.set('delay', settings.delay);
+                    }
+
+                    if (settings.gameType === 'cpu') {
+                        params.set('mode', 'cpu');
+                        params.set('level', settings.cpuLevel);
+                        params.set('color', settings.playerColor);
+                    } else {
+                        params.set('mode', 'local');
+                    }
+
+                    window.location.href = `game.html?${params.toString()}`;
+                }
+            } catch (error) {
+                console.error("Game creation failed:", error);
+                alert('対局の作成に失敗しました。');
+                createButton.disabled = false;
+                buttonText.textContent = '対局を作成';
+                buttonSpinner.classList.add('hidden');
+            }
+        });
+
+    </script>
+</body>
+</html>

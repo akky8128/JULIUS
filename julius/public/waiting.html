@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JuliUs. - 対戦相手を待っています</title>
+    <meta name="description" content="JuliUs.で対戦相手を待っています。">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192x192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+    <link rel="shortcut icon" href="favicon.ico">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="JuliUs.">
+    <meta property="og:title" content="JuliUs. - 対戦相手を待っています">
+    <meta property="og:description" content="JuliUs.で対戦相手を待っています。">
+    <meta property="og:url" content="https://julius-online-a5984.web.app/waiting.html">
+    <meta property="og:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="JuliUs. - 対戦相手を待っています">
+    <meta name="twitter:description" content="JuliUs.で対戦相手を待っています。">
+    <meta name="twitter:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+        }
+        .loader {
+            border-top-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="header-placeholder"></div>
+
+    <main class="container mx-auto px-6 py-12">
+        <div class="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-lg text-center">
+            <h2 class="text-3xl font-bold text-gray-900 mb-4">対戦相手を待っています...</h2>
+            <p class="text-gray-600 mb-8">以下のいずれかを対戦相手に共有してください。</p>
+
+            <!-- 6文字の対局コード -->
+            <div class="mb-6">
+                <p class="text-sm text-gray-500 mb-2 text-left">対局コード</p>
+                <div class="bg-gray-200 p-4 rounded-lg flex items-center justify-between">
+                    <span id="game-code-display" class="text-3xl md:text-4xl font-mono font-bold tracking-widest text-gray-900 px-2"></span>
+                    <button id="copy-code-button" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg ml-4 transition-transform transform hover:scale-105">
+                        <i class="fas fa-copy mr-2"></i>コピー
+                    </button>
+                </div>
+            </div>
+
+            <!-- 参加用リンク -->
+            <div class="mb-2">
+                <p class="text-sm text-gray-500 mb-2 text-left">参加用リンク</p>
+                <div class="bg-gray-200 p-4 rounded-lg flex items-center justify-between">
+                    <span id="join-url-display" class="text-sm md:text-base font-mono text-gray-600 break-all text-left px-2"></span>
+                    <button id="copy-url-button" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg ml-4 transition-transform transform hover:scale-105">
+                        <i class="fas fa-copy mr-2"></i>コピー
+                    </button>
+                </div>
+            </div>
+            <p id="copy-feedback" class="text-green-600 h-6 mt-2"></p>
+
+            <button id="share-button" disabled class="mt-2 w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg text-lg transition">
+                <i class="fas fa-share mr-2"></i>共有する
+            </button>
+            <p id="share-feedback" class="text-green-600 h-6 mt-2"></p>
+
+            <div class="mt-8 flex justify-center items-center space-x-4">
+                <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16"></div>
+                <p class="text-lg text-gray-700">対戦相手が参加すると自動でゲームが始まります。</p>
+            </div>
+
+             <div class="mt-12 border-t pt-6">
+                <button id="invite-friend-btn" class="mb-4 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-lg text-lg transition">
+                    <i class="fas fa-user-plus mr-2"></i>友達を招待する
+                </button>
+                <a href="index.html" class="text-gray-500 hover:text-gray-700 transition">対局をキャンセルしてトップに戻る</a>
+             </div>
+        </div>
+    </main>
+
+    <div id="invite-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h3 class="text-xl font-bold">フォロー中の友達を招待</h3>
+                <button id="invite-modal-close-btn" class="text-3xl font-light leading-none text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            <div id="invite-user-list" class="p-4 max-h-[60vh] overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <div id="footer-placeholder"></div>
+
+    <script type="module">
+        import { loadHeader } from './js/header.js';
+        import { loadFooter } from './js/footer.js';
+        loadHeader();
+        loadFooter();
+
+        import { auth, database, functions } from './js/firebase.js';
+        import { ref, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+        import { requireAuthAndNickname } from './js/authGuard.js';
+
+        const createInvitationFn = httpsCallable(functions, 'createInvitation');
+
+        const gameCodeDisplay = document.getElementById('game-code-display');
+        const joinUrlDisplay = document.getElementById('join-url-display');
+        const copyCodeButton = document.getElementById('copy-code-button');
+        const copyUrlButton = document.getElementById('copy-url-button');
+        const copyFeedback = document.getElementById('copy-feedback');
+        const shareButton = document.getElementById('share-button');
+        const shareFeedback = document.getElementById('share-feedback');
+
+        // 共有ボタン用に、最初のmetaスナップショット取得後のコード/URLを保持
+        let shareUrl = null;
+
+        const matchFoundSound = new Audio('sounds/match-found.mp3');
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const gameId = urlParams.get('id');
+
+        async function init() {
+            onAuthStateChanged(auth, async (user) => {
+                if (!(await requireAuthAndNickname(user, database))) return;
+
+                if (!gameId) {
+                    document.querySelector('main div').innerHTML = '<h2 class="text-3xl font-bold text-red-500">エラー: 対局IDが見つかりません。</h2>';
+                    return;
+                }
+
+                // 対局コードが判明するまでは、暫定的にID経由の参加URLを表示しておく
+                joinUrlDisplay.textContent = `${location.origin}/join.html?id=${gameId}`;
+
+                const copyToClipboard = (text) => {
+                    navigator.clipboard.writeText(text).then(() => {
+                        copyFeedback.textContent = 'コピーしました！';
+                        setTimeout(() => { copyFeedback.textContent = ''; }, 2000);
+                    }).catch(() => {
+                        copyFeedback.textContent = 'コピーに失敗しました。';
+                    });
+                };
+
+                copyCodeButton.addEventListener('click', () => {
+                    const code = gameCodeDisplay.textContent.trim();
+                    if (code) copyToClipboard(code);
+                });
+                copyUrlButton.addEventListener('click', () => {
+                    copyToClipboard(joinUrlDisplay.textContent.trim());
+                });
+
+                shareButton.addEventListener('click', async () => {
+                    if (!shareUrl) return;
+                    const codeMatch = shareUrl.match(/code=([A-Z0-9]+)/);
+                    const shareText = codeMatch
+                        ? `対局コード ${codeMatch[1]} で対戦しましょう！`
+                        : '対局に招待します！';
+
+                    if (navigator.share) {
+                        try {
+                            await navigator.share({
+                                title: 'JuliUs. 対局への招待',
+                                text: shareText,
+                                url: shareUrl
+                            });
+                        } catch (err) {
+                            if (err.name !== 'AbortError') {
+                                console.error('Failed to share:', err);
+                            }
+                        }
+                    } else {
+                        // Web Share非対応環境ではリンクをコピーして代替
+                        try {
+                            await navigator.clipboard.writeText(shareUrl);
+                            shareFeedback.textContent = 'リンクをコピーしました';
+                            setTimeout(() => { shareFeedback.textContent = ''; }, 2000);
+                        } catch (err) {
+                            console.error('Failed to copy invite link:', err);
+                        }
+                    }
+                });
+
+                // meta ノードだけを購読してマッチング検知（全体取得より帯域を節約）
+                const metaRef = ref(database, `games/${gameId}/meta`);
+
+                const unsubscribe = onValue(metaRef, (snapshot) => {
+                    // --- データが存在する場合 ---
+                    if (snapshot.exists()) {
+                        const metaData = snapshot.val();
+
+                        // 対局コードが分かればコードと、それを含む参加URLを表示
+                        if (metaData.gameCode) {
+                            gameCodeDisplay.textContent = metaData.gameCode;
+                            shareUrl = `${location.origin}/join.html?code=${metaData.gameCode}`;
+                            joinUrlDisplay.textContent = shareUrl;
+                        } else if (!shareUrl) {
+                            shareUrl = `${location.origin}/join.html?id=${gameId}`;
+                            joinUrlDisplay.textContent = shareUrl;
+                        }
+                        shareButton.disabled = false;
+
+                        if (metaData.status === 'in_progress') {
+                            unsubscribe(); // 監視を停止
+                            const redirectToGame = () => {
+                                window.location.href = `game.html?id=${gameId}&mode=play`;
+                            };
+
+                            matchFoundSound.play().catch(e => redirectToGame()).then(() => {
+                            setTimeout(redirectToGame, 500); // 音が鳴り終わるのを少し待つ
+                            });
+                        }
+                    // --- データが存在しない（削除された）場合 ---
+                    } else {
+                        unsubscribe(); // 監視を停止
+                        alert("対戦相手が見つからなかったため、この対局は期限切れとなりました。");
+                        window.location.href = 'index.html';
+                    }
+                });
+
+                setupInviteModal(user);
+            });
+        }
+
+        init();
+
+        // 招待モーダルの処理（変更なし）
+        function setupInviteModal(currentUser) {
+            const inviteModal = document.getElementById('invite-modal');
+            
+            document.getElementById('invite-friend-btn').addEventListener('click', async () => {
+                const userList = document.getElementById('invite-user-list');
+                userList.innerHTML = '<p>読み込み中...</p>';
+                inviteModal.classList.remove('hidden');
+
+                const followingRef = ref(database, `users/${currentUser.uid}/following`);
+                const snapshot = await get(followingRef);
+                userList.innerHTML = '';
+                
+                if (!snapshot.exists()) {
+                    userList.innerHTML = '<p>フォロー中のユーザーがいません。</p>';
+                    return;
+                }
+                const followingIds = Object.keys(snapshot.val());
+
+                for (const uid of followingIds) {
+                    const profileSnap = await get(ref(database, `users/${uid}/profile`));
+                    const nickname = profileSnap.exists() ? profileSnap.val().nickname : 'ゲスト';
+
+                    const item = document.createElement('div');
+                    item.className = 'py-2 flex justify-between items-center';
+
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = nickname;
+
+                    const inviteBtn = document.createElement('button');
+                    inviteBtn.className = 'invite-btn bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600';
+                    inviteBtn.dataset.uid = uid;
+                    inviteBtn.textContent = '招待';
+
+                    item.appendChild(nameSpan);
+                    item.appendChild(inviteBtn);
+                    userList.appendChild(item);
+                }
+            });
+
+            document.getElementById('invite-modal-close-btn').addEventListener('click', () => inviteModal.classList.add('hidden'));
+
+            document.getElementById('invite-user-list').addEventListener('click', async (e) => {
+                if (e.target.classList.contains('invite-btn')) {
+                    const btn = e.target;
+                    const targetUid = btn.dataset.uid;
+                    btn.disabled = true;
+                    btn.textContent = '招待済み';
+
+                    try {
+                        await createInvitationFn({gameId, targetUid});
+                    } catch (error) {
+                        console.error("Failed to create invitation:", error);
+                        btn.disabled = false;
+                        btn.textContent = '招待';
+                        alert('招待の送信に失敗しました。');
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

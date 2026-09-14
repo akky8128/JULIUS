@@ -1,0 +1,124 @@
+{
+  "format": "nnue-ukeja-v1",
+  "generation": 1,
+  "boardSize": 4,
+  "featureDim": 256,
+  "scalarDim": 13,
+  "maxDepth": 8,
+  "hidden": [
+    160,
+    48,
+    48
+  ],
+  "concatScalarsAfterLayer": 1,
+  "activation": "clipped_relu",
+  "clipMin": 0.0,
+  "clipMax": 1.0,
+  "scoreScale": 100.0,
+  "scoreClip": 2000.0,
+  "lambda": 0.6,
+  "dtype": "float32",
+  "byteOrder": "little-endian",
+  "tensors": [
+    {
+      "name": "W1",
+      "shape": [
+        160,
+        256
+      ]
+    },
+    {
+      "name": "b1",
+      "shape": [
+        160
+      ]
+    },
+    {
+      "name": "W2",
+      "shape": [
+        48,
+        231
+      ]
+    },
+    {
+      "name": "b2",
+      "shape": [
+        48
+      ]
+    },
+    {
+      "name": "W3",
+      "shape": [
+        48,
+        48
+      ]
+    },
+    {
+      "name": "b3",
+      "shape": [
+        48
+      ]
+    },
+    {
+      "name": "W4",
+      "shape": [
+        1,
+        48
+      ]
+    },
+    {
+      "name": "b4",
+      "shape": [
+        1
+      ]
+    },
+    {
+      "name": "Wenc",
+      "shape": [
+        32,
+        16
+      ]
+    },
+    {
+      "name": "benc",
+      "shape": [
+        32
+      ]
+    },
+    {
+      "name": "Wp",
+      "shape": [
+        81,
+        48
+      ]
+    },
+    {
+      "name": "bp",
+      "shape": [
+        81
+      ]
+    }
+  ],
+  "train": {
+    "dataFile": "tools/alphazero/data/loop8/batch_r83.jsonl",
+    "numRecords": 400000,
+    "valLoss": 1.2508721500635147,
+    "trainLoss": 1.2224326220765245,
+    "epochsRun": 6,
+    "bestEpoch": 1,
+    "device": "mps",
+    "seed": 83,
+    "splitBy": "pid",
+    "numTrainPositions": 133471,
+    "numValPositions": 14830,
+    "valPolicyTop1": 0.7611940503120422
+  },
+  "stackEncoder": {
+    "dim": 32,
+    "cellSlotDim": 16
+  },
+  "policyHead": {
+    "actions": 81
+  },
+  "turnContextDim": 26
+}

@@ -1,0 +1,89 @@
+{
+  "format": "nnue-ukeja-v1",
+  "generation": 4,
+  "boardSize": 4,
+  "featureDim": 256,
+  "scalarDim": 4,
+  "maxDepth": 8,
+  "hidden": [
+    128,
+    32,
+    32
+  ],
+  "concatScalarsAfterLayer": 1,
+  "activation": "clipped_relu",
+  "clipMin": 0.0,
+  "clipMax": 1.0,
+  "scoreScale": 100.0,
+  "scoreClip": 2000.0,
+  "lambda": 0.6,
+  "dtype": "float32",
+  "byteOrder": "little-endian",
+  "tensors": [
+    {
+      "name": "W1",
+      "shape": [
+        128,
+        256
+      ]
+    },
+    {
+      "name": "b1",
+      "shape": [
+        128
+      ]
+    },
+    {
+      "name": "W2",
+      "shape": [
+        32,
+        132
+      ]
+    },
+    {
+      "name": "b2",
+      "shape": [
+        32
+      ]
+    },
+    {
+      "name": "W3",
+      "shape": [
+        32,
+        32
+      ]
+    },
+    {
+      "name": "b3",
+      "shape": [
+        32
+      ]
+    },
+    {
+      "name": "W4",
+      "shape": [
+        1,
+        32
+      ]
+    },
+    {
+      "name": "b4",
+      "shape": [
+        1
+      ]
+    }
+  ],
+  "train": {
+    "dataFile": "tools/nnue/data/gen002.jsonl",
+    "numRecords": 302424,
+    "valLoss": 0.03090042620897293,
+    "trainLoss": 0.022707787283653778,
+    "epochsRun": 36,
+    "bestEpoch": 26,
+    "device": "mps",
+    "seed": 1,
+    "splitBy": "pid",
+    "numTrainPositions": 34023,
+    "numValPositions": 3780
+  }
+}

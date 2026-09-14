@@ -1,0 +1,106 @@
+{
+  "format": "nnue-ukeja-v1",
+  "generation": 120,
+  "boardSize": 4,
+  "featureDim": 256,
+  "scalarDim": 13,
+  "maxDepth": 8,
+  "hidden": [
+    96,
+    24,
+    24
+  ],
+  "concatScalarsAfterLayer": 1,
+  "activation": "clipped_relu",
+  "clipMin": 0.0,
+  "clipMax": 1.0,
+  "scoreScale": 100.0,
+  "scoreClip": 2000.0,
+  "lambda": 0.6,
+  "dtype": "float32",
+  "byteOrder": "little-endian",
+  "tensors": [
+    {
+      "name": "W1",
+      "shape": [
+        96,
+        256
+      ]
+    },
+    {
+      "name": "b1",
+      "shape": [
+        96
+      ]
+    },
+    {
+      "name": "W2",
+      "shape": [
+        24,
+        125
+      ]
+    },
+    {
+      "name": "b2",
+      "shape": [
+        24
+      ]
+    },
+    {
+      "name": "W3",
+      "shape": [
+        24,
+        24
+      ]
+    },
+    {
+      "name": "b3",
+      "shape": [
+        24
+      ]
+    },
+    {
+      "name": "W4",
+      "shape": [
+        1,
+        24
+      ]
+    },
+    {
+      "name": "b4",
+      "shape": [
+        1
+      ]
+    },
+    {
+      "name": "Wenc",
+      "shape": [
+        16,
+        16
+      ]
+    },
+    {
+      "name": "benc",
+      "shape": [
+        16
+      ]
+    }
+  ],
+  "train": {
+    "dataFile": "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/gen014_13.jsonl",
+    "numRecords": 3427296,
+    "valLoss": 0.03449128195643425,
+    "trainLoss": 0.033526401758603074,
+    "epochsRun": 34,
+    "bestEpoch": 24,
+    "device": "cpu",
+    "seed": 24,
+    "splitBy": "pid",
+    "numTrainPositions": 168430,
+    "numValPositions": 18714
+  },
+  "stackEncoder": {
+    "dim": 16,
+    "cellSlotDim": 16
+  }
+}

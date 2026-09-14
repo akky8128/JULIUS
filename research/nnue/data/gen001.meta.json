@@ -1,0 +1,44 @@
+{
+  "generatedAt": "2026-07-05T17:19:43.461Z",
+  "config": {
+    "games": 120,
+    "size": 4,
+    "maxDepth": 3,
+    "timeBudgetMs": 150,
+    "maxPlies": 150,
+    "seed": 2,
+    "openingRandomPlies": 6,
+    "epsilon": 0.1,
+    "augment": 8
+  },
+  "MAX_DEPTH": 8,
+  "SCALAR_DIM": 4,
+  "featureDim": 256,
+  "numGames": 120,
+  "numRecords": 44248,
+  "numPositions": 5531,
+  "generator": {
+    "evaluator": "heuristic",
+    "net": null
+  },
+  "resultDistribution": {
+    "win": 2797,
+    "draw": 0,
+    "loss": 2734
+  },
+  "scoreStats": {
+    "min": -999999999,
+    "max": 999999999,
+    "mean": 23684699.152594466
+  },
+  "symCoverage": {
+    "0": 5531,
+    "1": 5531,
+    "2": 5531,
+    "3": 5531,
+    "4": 5531,
+    "5": 5531,
+    "6": 5531,
+    "7": 5531
+  }
+}

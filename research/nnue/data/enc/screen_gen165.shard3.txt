@@ -1,0 +1,27 @@
+Ukeja Layer 自己対戦 — games=6 size=4 seed=991 maxPlies=400
+プレイヤー: white=nnue:models/gen165.json:d64:120  black=nnue:models/gen137.json:d64:120  [--swap 有効]
+────────────────────────────────────────────────────────────
+
+=== 結果 ===
+白 勝利:         3
+黒 勝利:         3
+中断 (maxPlies): 0
+平均ゲーム長:    41.5 plies
+平均分岐数:      32.5
+最大分岐数:      440
+generateTurns 平均時間: 1.235 ms/ply
+エラー件数:      0
+
+=== エージェントタイプ別勝率 ===
+  nnue:models/gen165.json:d64:120: 4勝 / 6決着 (勝率 66.7%)  95%CI [28.9%, 100.0%]
+    wins=4 losses=2 draws=N/A(集計対象外) winRate=66.7% 95%CI=[28.9%, 100.0%]
+  nnue:models/gen137.json:d64:120: 2勝 / 6決着 (勝率 33.3%)  95%CI [0.0%, 71.1%]
+    wins=2 losses=4 draws=N/A(集計対象外) winRate=33.3% 95%CI=[0.0%, 71.1%]
+
+=== chooseTurn 平均時間 ===
+  nnue(gen165,d64,120ms): 195.140 ms/ply (125 plies)
+  nnue(gen137,d64,120ms): 215.043 ms/ply (124 plies)
+
+=== サーチエージェント探索統計 ===
+  nnue(gen165,d64,120ms): 平均到達深さ=3.26  平均ノード数=983  (125 plies)
+  nnue(gen137,d64,120ms): 平均到達深さ=3.27  平均ノード数=942  (124 plies)

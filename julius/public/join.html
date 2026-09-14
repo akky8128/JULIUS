@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JuliUs. - 対局に参加</title>
+    <meta name="description" content="JuliUs.で招待された対局に参加しましょう。">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192x192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+    <link rel="shortcut icon" href="favicon.ico">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="JuliUs.">
+    <meta property="og:title" content="JuliUs. - 対局に参加">
+    <meta property="og:description" content="JuliUs.で招待された対局に参加しましょう。">
+    <meta property="og:url" content="https://julius-online-a5984.web.app/join.html">
+    <meta property="og:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="JuliUs. - 対局に参加">
+    <meta name="twitter:description" content="JuliUs.で招待された対局に参加しましょう。">
+    <meta name="twitter:image" content="https://julius-online-a5984.web.app/assets/og-image.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- ヘッダーの読み込み場所 -->
+    <div id="header-placeholder"></div>
+
+    <!-- メインコンテンツ -->
+    <main class="container mx-auto px-6 py-12">
+        <h2 class="text-3xl font-bold text-center text-gray-900 mb-8">対局に参加</h2>
+
+        <div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-lg">
+            <form id="join-form">
+                <div class="space-y-6">
+                    <div>
+                        <label for="game-id-input" class="block text-lg font-semibold text-gray-700">対局コード / 対局ID</label>
+                        <p class="text-sm text-gray-500 mt-1">友達から共有された6文字のコード（例: ABC123）または対局IDを入力してください。</p>
+                        <input type="text" id="game-id-input" name="gameId" required class="mt-2 p-3 w-full border rounded-md" placeholder="例: ABC123">
+                    </div>
+                </div>
+
+                <!-- ボタン -->
+                <div class="mt-8 border-t pt-6">
+                    <!-- 対局に参加するボタン -->
+                    <button type="submit" id="join-game-button" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition flex items-center justify-center">
+                        <span id="button-text">対局に参加する</span>
+                        <svg id="button-spinner" class="animate-spin ml-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                    <p id="error-message" class="text-red-500 h-6 mt-4 text-center"></p>
+                </div>
+            </form>
+        </div>
+    </main>
+
+     <!-- フッター -->
+    <div id="footer-placeholder"></div>
+
+    <script type="module">
+        import { loadHeader } from './js/header.js';
+        import { loadFooter } from './js/footer.js';
+        loadHeader();
+        loadFooter();
+
+        import { auth, database, functions } from './js/firebase.js';
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+        import { requireAuthAndNickname } from './js/authGuard.js';
+
+        const joinGame = httpsCallable(functions, 'joinGame');
+
+        const form = document.getElementById('join-form');
+        const errorMessage = document.getElementById('error-message');
+        const gameIdInput = document.getElementById('game-id-input');
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const gameIdFromInvite = urlParams.get('id');
+        const codeFromInvite = urlParams.get('code');
+        if (codeFromInvite) {
+            gameIdInput.value = codeFromInvite.toUpperCase();
+        } else if (gameIdFromInvite) {
+            gameIdInput.value = gameIdFromInvite;
+        }
+
+        const joinButton = document.getElementById('join-game-button');
+        const buttonText = document.getElementById('button-text');
+        const buttonSpinner = document.getElementById('button-spinner');
+
+        onAuthStateChanged(auth, async (user) => {
+            if (!(await requireAuthAndNickname(user, database))) return;
+
+            joinButton.disabled = false;
+        });
+
+        // ▼▼▼【変更点】フォーム送信時の処理を全面的に変更 ▼▼▼
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorMessage.textContent = '';
+
+            const raw = gameIdInput.value.trim();
+            if (!raw) {
+                errorMessage.textContent = '対局コードまたは対局IDを入力してください。';
+                return;
+            }
+
+            joinButton.disabled = true;
+            buttonText.textContent = '参加中...';
+            buttonSpinner.classList.remove('hidden');
+
+            try {
+                // 6文字の英数字（ハイフンなし）は短い対局コードとして扱う
+                const isShortCode = /^[A-Za-z0-9]{6}$/.test(raw) && !raw.includes('-');
+
+                // Cloud Functionを呼び出す
+                const res = isShortCode
+                    ? await joinGame({ code: raw.toUpperCase() })
+                    : await joinGame({ gameId: raw });
+
+                // 成功したらゲーム画面へ（コード参加時はクライアント側でIDが分からないため、返り値のIDを使用）
+                window.location.href = `game.html?id=${res.data.gameId}&mode=play`;
+
+            } catch (error) {
+                console.error("Failed to join game:", error);
+                // Firebaseからのエラーメッセージをユーザーに分かりやすく表示
+                errorMessage.textContent = error.message || '対局への参加に失敗しました。';
+
+                joinButton.disabled = false;
+                buttonText.textContent = '対局に参加する';
+                buttonSpinner.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
