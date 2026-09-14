@@ -23,6 +23,72 @@ export function maxSummonsFor(boardSize) {
   return Math.floor((boardSize * boardSize) / 2);
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// 実験用ルール設定（環境変数駆動・既定は現行挙動を厳密に保存）。
+//
+// 3x3縮小盤での先手有利検証(AlphaZero流用)のために、非対称召喚数と排除解禁方式を
+// 環境変数で切り替えられるようにする。環境変数が一切設定されていなければ、返り値は
+// すべて従来の対称ルール（両者 maxSummonsFor / 両者召喚完了で排除解禁）と完全一致する
+// ため、4x4本番アプリの挙動には一切影響しない。
+//
+//   UL_MAX_WHITE / UL_MAX_BLACK : 各色の召喚上限（未設定なら maxSummonsFor(boardSize)）
+//   UL_ELIM_UNLOCK              : "both"(既定) 相手も含め全召喚完了で解禁
+//                                 "self"       自分の全召喚完了で相手を待たず解禁
+// ───────────────────────────────────────────────────────────────────────────
+
+function ruleEnv(key) {
+  return (typeof process !== "undefined" && process.env) ? process.env[key] : undefined;
+}
+
+/** 各色の召喚上限を返す。{white, black}。既定は対称 maxSummonsFor(boardSize)。 */
+export function ruleMaxSummons(boardSize) {
+  const def = maxSummonsFor(boardSize);
+  const w = ruleEnv("UL_MAX_WHITE");
+  const b = ruleEnv("UL_MAX_BLACK");
+  return {
+    white: w != null && w !== "" ? parseInt(w, 10) : def,
+    black: b != null && b !== "" ? parseInt(b, 10) : def,
+  };
+}
+
+/** 盤上に存在する player の駒数（スタック内の埋没駒も含む）。 */
+function countOnBoard(board, boardSize, player) {
+  let n = 0;
+  for (let r = 0; r < boardSize; r++) {
+    const row = board ? board[r] : undefined;
+    for (let c = 0; c < boardSize; c++) {
+      const stack = normalizeStack(row ? row[c] : undefined);
+      for (let i = 0; i < stack.length; i++) if (stack[i] === player) n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * player が排除を使えるか（排除解禁判定）。
+ *  - "both"(既定): 両者が全召喚完了。従来の summonPhaseOver と同値。
+ *  - "self": player 自身が「相手に排除された分を除く全ての駒」を召喚済み。
+ *      eliminated = summonCounts[player] - 盤上player駒数（盤外に出るのは相手の排除のみ）。
+ *      required   = maxSummons[player] - eliminated。
+ *      解禁条件   = summonCounts[player] >= required。
+ */
+export function canEliminate(board, summonCounts, boardSize, player) {
+  const max = ruleMaxSummons(boardSize);
+  const mode = ruleEnv("UL_ELIM_UNLOCK") || "both";
+  if (mode === "always") {
+    // 排除をゲーム開始から解禁（召喚完了を待たない）。有効な排除対象があるかは
+    // 呼び出し側（手生成）が別途チェックする。
+    return true;
+  }
+  if (mode === "self") {
+    const onBoard = countOnBoard(board, boardSize, player);
+    const eliminated = summonCounts[player] - onBoard;
+    const required = max[player] - eliminated;
+    return summonCounts[player] >= required;
+  }
+  return summonCounts.white >= max.white && summonCounts.black >= max.black;
+}
+
 export function cloneBoard(board) {
   return board.map((row) => row.map((stack) => normalizeStack(stack).slice()));
 }

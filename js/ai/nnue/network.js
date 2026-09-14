@@ -117,7 +117,17 @@ export function createNetwork(weightsFloat32Array, meta) {
   const hasNoFcPath = !!meta.noFcPath;
   const h1FcContrib = hasNoFcPath ? 0 : H1;
 
-  const h1Len = h1FcContrib + encContrib + scalarDim;
+  // ── 2ヘッド化（AlphaZero P1）: meta.policyHead と meta.turnContextDim がある
+  //    場合のみ有効化。h1 の末尾（scalars の後ろ）にターン文脈が concat され、
+  //    テンソル列の末尾に Wp[actions,H3]/bp[actions] が追加される。
+  //    旧モデル（これらの meta を持たない）は従来の forward のまま1bitも変わらない。
+  const hasPolicyHead = !!(meta.policyHead && offsets.Wp && offsets.bp);
+  const turnContextDim = hasPolicyHead ? (meta.turnContextDim || 0) : 0;
+  const numActions = hasPolicyHead ? meta.policyHead.actions : 0;
+  const Wp = hasPolicyHead ? offsets.Wp : null;
+  const bp = hasPolicyHead ? offsets.bp : null;
+
+  const h1Len = h1FcContrib + encContrib + scalarDim + turnContextDim;
 
   // 作業用バッファ（呼び出しごとの再確保を避ける）
   const a1 = hasNoFcPath ? null : new Float64Array(H1);
@@ -134,9 +144,11 @@ export function createNetwork(weightsFloat32Array, meta) {
    * 線形出力（活性化なしの生スコア）を計算する。
    * @param {number[]} indices - active な one-hot 特徴 index の配列（重複可）
    * @param {number[]} scalars - 長さ scalarDim のスカラー特徴
+   * @param {number[]|Float64Array} [turnContext] - policyHead モデルのみ意味を持つ
+   *   ターン文脈（長さ turnContextDim）。省略時は全ゼロとして扱う（後方互換）。
    * @returns {number}
    */
-  function evaluate(indices, scalars) {
+  function evaluate(indices, scalars, turnContext) {
     if (!hasNoFcPath) {
       // L1: 疎 accumulator。o についてループし、各 active idx を加算する。
       const w1base = W1.offset;
@@ -207,6 +219,15 @@ export function createNetwork(weightsFloat32Array, meta) {
       h1[h1FcContrib + encOffset + s] = scalars[s];
     }
 
+    // ターン文脈（policyHead モデルのみ h1 末尾に存在）。作業バッファ h1 は
+    // 呼び出し間で共有されるため、省略時もゼロを明示的に書き込む。
+    if (turnContextDim > 0) {
+      const tcOffset = h1FcContrib + encOffset + scalarDim;
+      for (let t = 0; t < turnContextDim; t++) {
+        h1[tcOffset + t] = turnContext ? turnContext[t] : 0;
+      }
+    }
+
     // L2: 密結合
     const w2base = W2.offset;
     for (let o = 0; o < H2; o++) {
@@ -262,10 +283,41 @@ export function createNetwork(weightsFloat32Array, meta) {
     return evaluate(indices, scalars);
   }
 
+  /**
+   * value と policy logits を同時に計算する（policyHead モデル専用）。
+   * softmax・合法手マスクは行わない（MCTS側の責務）。
+   * policyLogits は呼び出しごとに新しい Float64Array を返す。
+   * turnContext 全ゼロ（または省略）時の value は evaluate(indices, scalars) と一致する。
+   *
+   * @param {number[]} indices
+   * @param {number[]} scalars
+   * @param {number[]|Float64Array} [turnContext] - 長さ turnContextDim。省略時は全ゼロ
+   * @returns {{ value: number, policyLogits: Float64Array }}
+   */
+  function evaluatePolicy(indices, scalars, turnContext) {
+    if (!hasPolicyHead) {
+      throw new Error("evaluatePolicy: this model has no policy head (meta.policyHead missing)");
+    }
+    const value = evaluate(indices, scalars, turnContext);
+    // evaluate 直後の a3 バッファをそのまま利用して policy logits を計算する
+    const policyLogits = new Float64Array(numActions);
+    const wpBase = Wp.offset;
+    for (let o = 0; o < numActions; o++) {
+      let sum = weightsFloat32Array[bp.offset + o];
+      const rowBase = wpBase + o * H3;
+      for (let j = 0; j < H3; j++) {
+        sum += weightsFloat32Array[rowBase + j] * a3[j];
+      }
+      policyLogits[o] = sum;
+    }
+    return { value, policyLogits };
+  }
+
   return {
     evaluate,
     evaluateSigmoid,
     evaluateState,
+    evaluatePolicy,
     meta,
   };
 }

@@ -10,7 +10,7 @@
  * 正 = povPlayer 有利、という向きで特徴を組み立てる（色は POV 相対でエンコードする）。
  */
 
-import { maxSummonsFor, normalizeStack } from "../../gameLogic.js";
+import { maxSummonsFor, ruleMaxSummons, canEliminate, normalizeStack } from "../../gameLogic.js";
 
 // ───────────────────────── 定数 ─────────────────────────
 
@@ -88,7 +88,9 @@ export function featureDim(boardSize) {
 export function extractFeatures(state, povPlayer) {
   const { board, summonCounts, boardSize } = state;
   const oppPlayer = povPlayer === "white" ? "black" : "white";
-  const maxS = maxSummonsFor(boardSize);
+  const maxAll = ruleMaxSummons(boardSize);
+  const myMax = maxAll[povPlayer];
+  const oppMax = maxAll[oppPlayer];
 
   const indices = [];
   let emptyCellCount = 0;
@@ -138,19 +140,19 @@ export function extractFeatures(state, povPlayer) {
   }
 
   const numCells = boardSize * boardSize;
-  const myMaterial = myTop + myBuried + (maxS - summonCounts[povPlayer]);
-  const oppMaterial = oppTop + oppBuried + (maxS - summonCounts[oppPlayer]);
+  const myMaterial = myTop + myBuried + (myMax - summonCounts[povPlayer]);
+  const oppMaterial = oppTop + oppBuried + (oppMax - summonCounts[oppPlayer]);
 
   const scalars = new Array(SCALAR_DIM);
-  scalars[0] = (maxS - summonCounts[povPlayer]) / maxS;
-  scalars[1] = (maxS - summonCounts[oppPlayer]) / maxS;
-  scalars[2] = (summonCounts.white === maxS && summonCounts.black === maxS) ? 1 : 0;
+  scalars[0] = (myMax - summonCounts[povPlayer]) / myMax;
+  scalars[1] = (oppMax - summonCounts[oppPlayer]) / oppMax;
+  scalars[2] = canEliminate(board, summonCounts, boardSize, povPlayer) ? 1 : 0;
   scalars[3] = emptyCellCount / numCells;
   scalars[4] = (myTop - oppTop) / numCells;
   scalars[5] = (myBuried - oppBuried) / numCells;
   scalars[6] = (myElim - oppElim) / numCells;
   scalars[7] = (myMobility - oppMobility) / numCells;
-  scalars[8] = (myMaterial - oppMaterial) / (2 * maxS);
+  scalars[8] = (myMaterial - oppMaterial) / (myMax + oppMax);
   // ── 終局近接シグナル（第2弾特徴, [9]〜[12]）──
   // 勝敗規則: 盤面が埋まった（or サモン枯渇）時点で「トップに自コマが1つも無い側が負け」。
   // よって「絶対トップ密度」と「盤面充填率との積」が終局勝敗に直結する。積は線形の

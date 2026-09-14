@@ -5,7 +5,7 @@
  * simulateTurn を呼ばず、独自の軽量 apply ロジックで局面を差分更新する。
  */
 
-import { normalizeStack, normalizeBoard, maxSummonsFor } from "../gameLogic.js";
+import { normalizeStack, normalizeBoard, maxSummonsFor, ruleMaxSummons, canEliminate } from "../gameLogic.js";
 
 // ───────────────────────── 定数 ─────────────────────────
 /** 連続移動チェーンの最大手数 */
@@ -102,7 +102,7 @@ function undoMoveInPlace(board, from, to, count) {
  */
 export function generateTurns(state) {
   const { board, summonCounts, currentPlayer, boardSize } = state;
-  const maxSummons = maxSummonsFor(boardSize);
+  const maxSummons = ruleMaxSummons(boardSize);
   const player = currentPlayer;
   const opponent = player === "white" ? "black" : "white";
 
@@ -142,10 +142,10 @@ export function generateTurns(state) {
   }
 
   const startHash = hashPosition(board, summonCounts);
-  const summonPhaseOver = summonCounts.white === maxSummons && summonCounts.black === maxSummons;
+  const summonPhaseOver = canEliminate(board, summonCounts, boardSize, player);
 
   // ── 1. サモン ──────────────────────────────────────────────
-  if (summonCounts[player] < maxSummons) {
+  if (summonCounts[player] < maxSummons[player]) {
     for (let r = 0; r < boardSize && !capped; r++) {
       for (let c = 0; c < boardSize && !capped; c++) {
         if (board[r][c].length === 0) {
@@ -283,11 +283,11 @@ export function generateTurns(state) {
  */
 export function hasAnyLegalTurn(state) {
   const { board, summonCounts, currentPlayer, boardSize } = state;
-  const maxSummons = maxSummonsFor(boardSize);
+  const maxSummons = ruleMaxSummons(boardSize);
   const player = currentPlayer;
 
   // サモン可能か
-  if (summonCounts[player] < maxSummons) {
+  if (summonCounts[player] < maxSummons[player]) {
     for (let r = 0; r < boardSize; r++) {
       for (let c = 0; c < boardSize; c++) {
         if (board[r][c].length === 0) return true;
@@ -295,8 +295,8 @@ export function hasAnyLegalTurn(state) {
     }
   }
 
-  // エリミネート可能か（両者サモン完了後）
-  const summonPhaseOver = summonCounts.white === maxSummons && summonCounts.black === maxSummons;
+  // エリミネート可能か（排除解禁後）
+  const summonPhaseOver = canEliminate(board, summonCounts, boardSize, player);
   if (summonPhaseOver) {
     for (let r = 0; r < boardSize; r++) {
       for (let c = 0; c < boardSize; c++) {

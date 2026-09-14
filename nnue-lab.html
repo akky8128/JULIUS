@@ -78,7 +78,8 @@
                 <label id="nnue-model-label" class="block" style="display:none;">
                     NNUE モデル
                     <select id="opt-nnue-model" class="w-full border rounded p-1.5 mt-1">
-                        <option value="/models/gen137.json" selected>gen137 — 最強（96/24/24＋共有スタックエンコーダE16・多様性データgen015_13・vs heuristic 95.6%）</option>
+                        <option value="/models/genAZ8_r83.json" selected>genAZ8_r83 — AlphaZero最強（160/48/48＋stackEnc32・方策ヘッド／MCTS+マイクロアクションで対局：ランダムから83周・heuristic 100%・gen137に28-0-12無敗。思考中は評価バーが動的変動）</option>
+                        <option value="/models/gen137.json">gen137 — NNUE最強（96/24/24＋共有スタックエンコーダE16・αβ探索・vs heuristic 95.6%）</option>
                         <option value="/models/gen092.json">gen092 — 前チャンピオン（96/24/24＋共有スタックエンコーダ・vs heuristic 92.8%）</option>
                         <option value="/models/gen071.json">gen071 — 強（96/24/24・12周目・13スカラー終局特徴・vs heuristic 92.9%）</option>
                         <option value="/models/gen043.json">gen043 — 強（96/24/24・10周目・9スカラー・vs heuristic 91-93%）</option>
@@ -276,6 +277,21 @@
                     this.render();
                 };
 
+                // AlphaZero(方策ヘッド)ネット用の MCTS Worker。genAZ* 選択時に使う。
+                // 結果は同じ handleWorkerMessage、思考中の評価は type:'eval' で評価バーへ流す。
+                this.azWorker = new Worker('js/ai/azMctsWorker.js', { type: 'module' });
+                this.azWorker.onmessage = (event) => {
+                    const d = event.data;
+                    if (d && d.type === 'eval') { this.handleAzEval(d); return; }
+                    this.handleWorkerMessage(d);
+                };
+                this.azWorker.onerror = (err) => {
+                    console.error('azMctsWorker error:', err);
+                    this.cpuThinking = false;
+                    this.setMessage('CPU(AZ)エラーが発生しました: ' + (err.message || err));
+                    this.render();
+                };
+
                 this.cpuRequestId = 0;
                 this.cpuThinking = false;
                 this._cpuSendTime = 0;
@@ -343,6 +359,21 @@
             // NNUE モデルが選択されていれば .json パスを、それ以外は null を返す。
             readNnueNet() {
                 return dom.cpuLevelSel.value === 'nnue' ? dom.nnueModelSel.value : null;
+            }
+
+            // 選択中モデルが AlphaZero(方策ヘッド)ネットか（命名規約 genAZ* で判定）。
+            // AZ ネットは MCTS+マイクロアクションで対局する（価値ヘッド単体のαβでは実力が出ない）。
+            isAzNet() {
+                return !!this.nnueNetPath && /\/genAZ/i.test(this.nnueNetPath);
+            }
+
+            // AZ MCTS Worker の思考中 eval（白視点勝率）を評価バーへ動的反映する。
+            handleAzEval(data) {
+                if (data.requestId !== this.cpuRequestId) return; // 古い探索は無視
+                const prob = Math.max(0, Math.min(1, data.whiteWinProb));
+                dom.evalBarWhite.style.width = `${(prob * 100).toFixed(1)}%`;
+                const sims = data.info && data.info.sims ? ` (${data.info.sims} sims)` : '';
+                dom.evalBarLabel.textContent = `AZ MCTS 白勝率: ${(prob * 100).toFixed(1)}%${sims}`;
             }
 
             // NNUE モデル選択 UI の表示/非表示を CPU レベル選択に合わせる。
@@ -730,22 +761,33 @@
                 const requestId = ++this.cpuRequestId;
                 this._cpuSendTime = Date.now();
 
-                this.cpuWorker.postMessage({
-                    requestId,
-                    state: {
-                        board: this.committed.board, // denormalized でも Worker 側で normalize する
-                        summonCounts: this.committed.summonCounts,
-                        currentPlayer: this.committed.currentPlayer,
-                        boardSize: this.boardSize,
-                    },
-                    level: this.cpuLevel,
-                    options: {
-                        // NNUE は反復深化を時間予算で打ち切るため深めに、heuristic level3 は従来通り4。
-                        maxDepth: this.nnueNetPath ? 64 : 4,
-                        timeBudgetMs: this.timeBudgetMs,
-                        net: this.nnueNetPath || undefined,
-                    },
-                });
+                const state = {
+                    board: this.committed.board, // denormalized でも Worker 側で normalize する
+                    summonCounts: this.committed.summonCounts,
+                    currentPlayer: this.committed.currentPlayer,
+                    boardSize: this.boardSize,
+                };
+
+                if (this.isAzNet()) {
+                    // AlphaZero: MCTS Worker。思考中は type:'eval' で評価バーが動的に変動する。
+                    this.azWorker.postMessage({
+                        requestId,
+                        state,
+                        options: { timeBudgetMs: this.timeBudgetMs, net: this.nnueNetPath },
+                    });
+                } else {
+                    this.cpuWorker.postMessage({
+                        requestId,
+                        state,
+                        level: this.cpuLevel,
+                        options: {
+                            // NNUE は反復深化を時間予算で打ち切るため深めに、heuristic level3 は従来通り4。
+                            maxDepth: this.nnueNetPath ? 64 : 4,
+                            timeBudgetMs: this.timeBudgetMs,
+                            net: this.nnueNetPath || undefined,
+                        },
+                    });
+                }
             }
 
             handleWorkerMessage(data) {
@@ -909,6 +951,22 @@
             // 暫定表示し、ロード完了後にこの局面が最新なら再描画する。
             updateEvalBar(state) {
                 const netPath = this.nnueNetPath;
+                // AlphaZero ネット: 思考中は MCTS Worker の eval ストリームが評価バーを動かすので
+                // 上書きしない。待機中のみ価値ヘッドの静的値を「参考」として暫定表示する。
+                if (this.isAzNet()) {
+                    if (this.cpuThinking) return;
+                    const net = this.resolvedEvalNets && this.resolvedEvalNets[netPath];
+                    if (net) {
+                        const whiteLogit = net.evaluateState(state, 'white');
+                        const prob = 1 / (1 + Math.exp(-whiteLogit));
+                        dom.evalBarWhite.style.width = `${(prob * 100).toFixed(1)}%`;
+                        dom.evalBarLabel.textContent = `AZ 静的白勝率(参考): ${(prob * 100).toFixed(1)}%`;
+                        return;
+                    }
+                    this.ensureEvalNetLoaded(netPath);
+                    this.renderHeuristicBar(state, ' (AZ読込中…)');
+                    return;
+                }
                 if (netPath) {
                     const net = this.resolvedEvalNets && this.resolvedEvalNets[netPath];
                     if (net) {

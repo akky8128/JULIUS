@@ -91,6 +91,7 @@ models/*.golden.json
 !models/gen121.*
 !models/gen122.*
 !models/gen137.*
+!models/genAZ8_r83.*
 
 # NNUE: 巨大な学習データ・自己対戦shard・再ラベル中間生成物
 # (詳細は .claude/NNUE_HANDOFF.md 参照。ソース/ツール/evidence txtのみコミット対象)
@@ -100,3 +101,11 @@ tools/nnue/data/relabel/
 tools/nnue/data/enc/selfplay092/
 tools/nnue/data/feat2/STOP
 tools/nnue/data/feat2/train13.sh
+
+# AlphaZero: 自己対戦・学習データ(数百GB)とラン出力
+tools/alphazero/data/
+
+# Python caches
+__pycache__/
+.pytest_cache/
+*.pyc

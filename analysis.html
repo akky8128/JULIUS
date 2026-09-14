@@ -62,7 +62,7 @@
 
     <header class="bg-purple-900 text-white py-2 px-4 text-center text-sm">
         <span class="dev-badge">解析専用・非公開</span>
-        JuliUs 解析ツール — gen137 による時間無制限探索・棋譜つき局面解析（Firebase 未使用・ローカルメモリのみ）
+        JuliUs 解析ツール — genAZ8_r83（AlphaZero）MCTS による時間無制限・リアルタイム解析（Firebase 未使用・ローカルメモリのみ）
     </header>
 
     <main class="w-full max-w-3xl mx-auto py-6 px-4">
@@ -124,7 +124,7 @@
 
         <!-- ───────────── 評価バー（常時・静的評価） ───────────── -->
         <section id="eval-panel" class="bg-white rounded-lg shadow-md p-4 mt-4">
-            <p class="text-xs text-gray-500 mb-1">評価バー（白視点勝率。gen137 の静的評価。メインスレッドで随時計算）</p>
+            <p class="text-xs text-gray-500 mb-1">評価バー（白視点勝率。解析中は MCTS 由来の動的評価、待機中は価値ヘッドの静的参考値）</p>
             <div id="eval-bar-track">
                 <div id="eval-bar-white" style="width:50%"></div>
                 <div id="eval-bar-label">読込中…</div>
@@ -134,8 +134,8 @@
         <!-- ───────────── 解析パネル（Phase 5） ───────────── -->
         <section id="analysis-panel" class="bg-white rounded-lg shadow-md p-4 mt-4">
             <div class="flex items-center justify-between mb-3">
-                <h2 class="font-bold text-lg">局面解析（gen137・時間無制限）</h2>
-                <span class="text-xs text-gray-400">モデル: gen137 固定</span>
+                <h2 class="font-bold text-lg">局面解析（genAZ8_r83 MCTS・時間無制限）</h2>
+                <span class="text-xs text-gray-400">モデル: genAZ8_r83（MCTS）固定</span>
             </div>
 
             <div class="flex space-x-2 mb-3">
@@ -176,8 +176,10 @@
         import { createNetworkFromBuffer } from './js/ai/nnue/network.js';
         import { diffToNotation } from './js/tutorial/coords.js';
 
-        // 固定モデル（非公開・解析専用。gen137 は現行最強の学習済みNNUE（共有スタックエンコーダ））
-        const ANALYSIS_NET_PATH = '/models/gen137.json';
+        // 固定モデル（非公開・解析専用）。genAZ8_r83 は AlphaZero 最強ネット（方策ヘッド）。
+        // 解析は azAnalysisWorker.js の MCTS で行う（価値ヘッド単体αβより強い）。評価バーの
+        // 静的（待機）表示のみ価値ヘッドを参考値として使う。
+        const ANALYSIS_NET_PATH = '/models/genAZ8_r83.json';
         const BOARD_SIZE = 4; // 拡張余地として変数化しておくが、本ツールは4x4固定運用。
 
         // ─── 評価バー用 NNUE ネットワークのロード（メインスレッド・キャッシュ付き、nnue-lab.html 踏襲） ───
@@ -243,7 +245,7 @@
                 this.boardSize = BOARD_SIZE;
                 this.maxSummons = maxSummonsFor(this.boardSize);
 
-                this.analysisWorker = new Worker('js/ai/analysisWorker.js', { type: 'module' });
+                this.analysisWorker = new Worker('js/ai/azAnalysisWorker.js', { type: 'module' });
                 this.analysisWorker.onmessage = (event) => this.handleAnalysisMessage(event.data);
                 this.analysisWorker.onerror = (err) => {
                     console.error('analysisWorker error:', err);
@@ -267,6 +269,11 @@
             // moves: 各半手後の確定局面スナップショット配列。moves[0] は初期局面（白番・空盤）。
             newGame() {
                 this.stopAnalysis();
+                // 新規局面: 保持中の解析結果は無効なのでクリア（評価バーは静的へ）。
+                this.lastAnalysisDepth = null;
+                this.lastAnalysisElapsed = null;
+                this.lastAnalysisCurrent = null;
+                this.lastAnalysisCandidates = [];
 
                 const emptyBoard = [];
                 for (let r = 0; r < this.boardSize; r++) {
@@ -350,10 +357,11 @@
             jumpTo(index) {
                 const clamped = Math.max(0, Math.min(this.moves.length - 1, index));
                 if (clamped === this.viewingIndex) return;
-                this.stopAnalysis();
                 this.viewingIndex = clamped;
                 this.resetUncommittedChanges();
                 this.setMessage('');
+                // 解析中なら新しい表示局面をそのまま継続解析（停止しない）。
+                this.onBoardChanged();
                 this.render();
             }
 
@@ -652,8 +660,10 @@
                     this.winReason = `${winnerLabel}の勝利！${loserLabel}に合法手がなくなりました。`;
                 }
 
-                // 局面が変わったので進行中の解析は停止し、パネルをクリアする。
-                this.stopAnalysis();
+                // 局面が変わった: 解析中なら停止せず新しい確定局面を継続解析する。
+                // ただし決着局面は解析対象がないため停止する（停止時の動的評価は保持）。
+                if (this.status === 'completed') this.stopAnalysis();
+                else this.onBoardChanged();
 
                 this.resetUncommittedChanges();
                 this.setMessage(this.status === 'completed' ? this.winReason : '');
@@ -663,16 +673,22 @@
             // ───────────── 解析パネル（Phase 5・Worker結線） ─────────────
             startAnalysis() {
                 if (this.analyzing) return;
-                const state = this.viewingState();
                 this.analyzing = true;
-                this.analysisRequestId++;
-                this.lastAnalysisDepth = null;
-                this.lastAnalysisElapsed = null;
-                this.lastAnalysisCurrent = null;
-                this.lastAnalysisCandidates = [];
-                this.renderAnalysisPanel();
+                this.postAnalyze(this.viewingState(), { clearPanel: true });
                 this.renderAnalysisControls();
+            }
 
+            // 現在アクティブな解析へ新しい局面を投げる（requestId を更新して worker を上書き）。
+            // MCTS worker は activeRequestId 変化で旧ループを打ち切り、新局面をリアルタイム解析する。
+            postAnalyze(state, { clearPanel } = {}) {
+                this.analysisRequestId++;
+                if (clearPanel) {
+                    this.lastAnalysisDepth = null;
+                    this.lastAnalysisElapsed = null;
+                    this.lastAnalysisCurrent = null;
+                    this.lastAnalysisCandidates = [];
+                    this.renderAnalysisPanel();
+                }
                 this.analysisWorker.postMessage({
                     requestId: this.analysisRequestId,
                     cmd: 'analyze',
@@ -683,9 +699,30 @@
                         boardSize: this.boardSize,
                     },
                     netPath: ANALYSIS_NET_PATH,
-                    maxDepth: 64,
                     topN: 3,
                 });
+            }
+
+            // 盤面（表示中の確定局面）が変わったときに呼ぶ。解析中なら停止せず、新しい盤面を
+            // そのまま解析し続ける（ユーザーが「解析停止」を押すまで継続）。非解析中なら、直前に
+            // 保持していた（別局面の）解析結果は古くなるためクリアして静的評価に戻す。
+            onBoardChanged() {
+                this.clearPreview();
+                if (this.analyzing) {
+                    this.postAnalyze(this.viewingState(), { clearPanel: true });
+                } else {
+                    this.clearAnalysisView();
+                }
+            }
+
+            // 保持中の解析結果（動的評価・候補）を破棄し、パネル/評価バーを静的表示へ戻す。
+            clearAnalysisView() {
+                this.lastAnalysisDepth = null;
+                this.lastAnalysisElapsed = null;
+                this.lastAnalysisCurrent = null;
+                this.lastAnalysisCandidates = [];
+                this.renderAnalysisPanel();
+                this.updateEvalBar();
             }
 
             stopAnalysis() {
@@ -695,7 +732,9 @@
                 this.analyzing = false;
                 this.clearPreview();
                 this.renderAnalysisControls();
-                this.updateEvalBar(); // 静的評価へ戻す
+                // 停止時は静的評価へ戻さず、停止までの探索による動的評価・候補を保持表示する。
+                // （lastAnalysisCurrent / lastAnalysisCandidates はクリアしない）
+                this.updateEvalBar();
             }
 
             handleAnalysisMessage(data) {
@@ -918,13 +957,16 @@
                 // 解析中: analysisWorker の progress が返す白勝率（whiteWinProb）で更新する。
                 // プレビュー中でも解析対象局面の評価を保つため、盤面（currentTurnState）ではなく
                 // 直近の解析結果を用いる。
-                if (this.analyzing && this.lastAnalysisCurrent &&
+                // 解析中・停止後を問わず、直近の探索由来の動的評価があればそれを保持表示する
+                // （停止しても静的評価へは戻さない）。newGame 等で明示クリアされるまで残る。
+                if (this.lastAnalysisCurrent &&
                     typeof this.lastAnalysisCurrent.whiteWinProb === 'number') {
                     const prob = this.lastAnalysisCurrent.whiteWinProb;
-                    const round = this.lastAnalysisDepth;
+                    const sec = typeof this.lastAnalysisElapsed === 'number'
+                        ? `${(this.lastAnalysisElapsed / 1000).toFixed(1)}s` : '-';
+                    const tag = this.analyzing ? `探索 ${sec}` : `探索 ${sec}・停止`;
                     dom.evalBarWhite.style.width = `${(prob * 100).toFixed(1)}%`;
-                    dom.evalBarLabel.textContent =
-                        `白勝率: ${(prob * 100).toFixed(1)}%（探索R${round ?? '-'}）`;
+                    dom.evalBarLabel.textContent = `白勝率: ${(prob * 100).toFixed(1)}%（${tag}）`;
                     return;
                 }
 
@@ -944,7 +986,7 @@
                     const whiteLogit = net.evaluateState(state, 'white');
                     const prob = 1 / (1 + Math.exp(-whiteLogit));
                     dom.evalBarWhite.style.width = `${(prob * 100).toFixed(1)}%`;
-                    dom.evalBarLabel.textContent = `白勝率: ${(prob * 100).toFixed(1)}%（静的）`;
+                    dom.evalBarLabel.textContent = `白勝率: ${(prob * 100).toFixed(1)}%（静的・参考）`;
                     return;
                 }
                 this.ensureEvalNetLoaded();
