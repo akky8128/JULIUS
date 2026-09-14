@@ -1,0 +1,20 @@
+{
+  "name": "ukeja-layer",
+  "private": true,
+  "description": "Ukeja Layer: ルール/AIコア(core)・オンライン対戦サイトJuliUs.(julius)・AI研究(research)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "sync": "node julius/scripts/sync-core.mjs",
+    "sync:check": "node julius/scripts/sync-core.mjs --check",
+    "test": "npm run test:core && npm run test:julius && npm run test:research",
+    "test:core": "node --test \"core/test/**/*.test.mjs\"",
+    "test:julius": "npm run sync && node --test \"julius/test/**/*.test.mjs\" && npm --prefix julius/functions test",
+    "test:research": "node --test \"research/**/*.test.mjs\" && cd research/nnue && python3 -m pytest -q",
+    "lab": "python3 -m http.server 8777",
+    "serve:julius": "npm run sync && cd julius && firebase emulators:start",
+    "deploy:julius": "cd julius && firebase deploy"
+  }
+}

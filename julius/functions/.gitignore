@@ -1,0 +1,4 @@
+node_modules/
+*.local
+# julius/scripts/sync-core.mjs が生成する core/ のコピー
+core/
