@@ -4,7 +4,7 @@
 > NNUE＋αβ探索（教師あり学習）から **AlphaZero型の自己対戦強化学習** へ移行するための設計・実装計画。
 > 本資料は前提知識のない開発者でも読み進められるよう、ゲーム仕様の要点から設計判断の根拠までを自己完結でまとめる。
 
-作業ディレクトリ: `/Users/akky/Documents/HTML/JULIUS` ／ 関連資料: `.claude/NNUE_HANDOFF.md`（NNUE開発の全経緯）
+作業ディレクトリ: リポジトリ直下 ／ 関連資料: `research/nnue/NNUE_HANDOFF.md`（NNUE開発の全経緯）
 
 ---
 

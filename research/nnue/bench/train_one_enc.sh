@@ -1,6 +1,6 @@
 #!/bin/zsh
 # usage: train_one_enc.sh <seed> <gen> <data> <opponentModel> <encDim>
-cd /Users/akky/Documents/HTML/JULIUS
+cd "$(dirname "$0")/../../.."  # -> リポジトリ直下
 S=$1; G=$2; DATA=$3; OPP=$4; E=$5
 LOG=research/nnue/data/enc/train_gen0$G.log
 python3 research/nnue/train.py --data "$DATA" --generation "$G" --hidden1 96 --hidden2 24 --hidden3 24 \

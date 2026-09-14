@@ -1,6 +1,6 @@
 #!/bin/zsh
 # usage: pmatch.sh <white> <black> <totalGames> <shards> <outprefix> [baseSeed]
-cd /Users/akky/Documents/HTML/JULIUS
+cd "$(dirname "$0")/../../.."  # -> リポジトリ直下
 W=$1; B=$2; TOT=$3; SH=$4; OUT=$5; BASE=${6:-1000}
 per=$(( (TOT + SH - 1) / SH ))
 pids=()

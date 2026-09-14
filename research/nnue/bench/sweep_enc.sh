@@ -3,7 +3,7 @@
 # Pipeline: train (GPU) -> 30g screen vs champion gen092 (CPU) -> log.
 # Survivors (screen >= 63%) are flagged; 100g vs heuristic confirm is done by the operator.
 # Usage: sweep_enc.sh   (config list is inline below)
-cd /Users/akky/Documents/HTML/JULIUS
+cd "$(dirname "$0")/../../.."  # -> リポジトリ直下
 DATA=research/nnue/data/gen014_13.jsonl
 CHAMP=gen092
 SUM=research/nnue/data/enc/sweep_summary.txt

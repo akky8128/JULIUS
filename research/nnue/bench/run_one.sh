@@ -2,7 +2,7 @@
 # usage: run_one.sh <gen> <seed> <E> <lr> <epochs> <data> <champModel>
 # Trains one seed, then 30g screen vs champion. Meant to be launched with run_in_background.
 set -e
-cd /Users/akky/Documents/HTML/JULIUS
+cd "$(dirname "$0")/../../.."  # -> リポジトリ直下
 G=$1; S=$2; E=$3; LR=$4; EP=$5; DATA=$6; CHAMP=$7
 LOG=research/nnue/data/enc/train_gen${G}.log
 python3 research/nnue/train.py --data "$DATA" --generation "$G" \

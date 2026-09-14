@@ -1,25 +1,28 @@
-import json, sys
+import json, os, sys
+
+# スクリプト位置から research/nnue/data を解決する(置き場所に依存しない)
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
 
 files = [
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/shard1.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/shard2.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/shard3.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/shard4.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/shard5.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/gen110_shard1.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/gen110_shard2.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/gen119_shard1.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/gen124_shard1.jsonl",
-    "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/enc/selfplay092/gen124_shard2.jsonl",
+    os.path.join(DATA_DIR, "enc", "selfplay092", "shard1.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "shard2.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "shard3.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "shard4.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "shard5.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "gen110_shard1.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "gen110_shard2.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "gen119_shard1.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "gen124_shard1.jsonl"),
+    os.path.join(DATA_DIR, "enc", "selfplay092", "gen124_shard2.jsonl"),
 ]
 
 base_offset = 70000000  # 既存gen014_13の最大pid 65005500 より十分大きい開始点
-out_path = "/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/gen015_13.jsonl"
+out_path = os.path.join(DATA_DIR, "gen015_13.jsonl")
 
 with open(out_path, "w") as out:
     # まず既存gen014_13をそのままコピー
     n_old = 0
-    with open("/Users/akky/Documents/HTML/JULIUS/tools/nnue/data/gen014_13.jsonl") as f:
+    with open(os.path.join(DATA_DIR, "gen014_13.jsonl")) as f:
         for line in f:
             out.write(line)
             n_old += 1

@@ -4,7 +4,7 @@
 > このファイルだけで次セッションが立ち上がれるように、**この会話でしか分からない情報**を重点的にまとめた。
 > 詳細な世代別勝率表・技術知見は `research/nnue/NNUE_PROGRESS.md`、要約は `~/.claude/projects/-Users-akky-Documents-coding-ChessCoach/memory/julius-nnue-status.md`。
 
-作業ディレクトリ: `/Users/akky/Documents/HTML/JULIUS`　/　git ブランチ: `feat/nnue-cpu`
+作業ディレクトリ: リポジトリ直下(旧 `~/Documents/HTML/JULIUS` → `~/Documents/UkejaLayer`)　/　git ブランチ: `feat/nnue-cpu`
 
 ---
 
